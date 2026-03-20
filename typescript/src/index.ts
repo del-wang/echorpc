@@ -14,6 +14,8 @@ export {
 export type {
   ServerOptions,
   AuthHandler,
+  ServerRpcHandler,
+  ServerEventCallback,
   OnConnectCallback,
   OnDisconnectCallback,
 } from "./server.js";

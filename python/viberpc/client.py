@@ -65,12 +65,24 @@ class RpcClient:
     async def wait_connected(self, timeout: float = 10.0) -> None:
         await asyncio.wait_for(self._connected_event.wait(), timeout=timeout)
 
-    # ── Registration ─────────────────────────────────────────────────────
+    # ── RPC ─────────────────────────────────────────────────────
 
     def register(self, method: str, handler: Handler) -> None:
         self._handlers[method] = handler
         if self._conn:
             self._conn.register(method, handler)
+            
+    def unregister(self, method: str) -> None:
+        self._handlers.pop(method, None)
+        if self._conn:
+            self._conn.unregister(method)
+            
+    async def call(self, method: str, params: Any = None, *, timeout: float | None = None) -> Any:
+        if not self._conn or not self._conn.is_open:
+            raise RpcError(ErrorCode.NOT_CONNECTED, "not connected")
+        return await self._conn.call(method, params, timeout=timeout)
+
+    # ── RPC ──────────────────────────────────────────────────────────────
 
     def on(self, event: str, callback: EventCallback) -> None:
         self._event_listeners.setdefault(event, []).append(callback)
@@ -84,22 +96,10 @@ class RpcClient:
         if self._conn:
             self._conn.off(event, callback)
 
-    # ── RPC ──────────────────────────────────────────────────────────────
-
-    async def call(self, method: str, params: Any = None, *, timeout: float | None = None) -> Any:
-        if not self._conn or not self._conn.is_open:
-            raise RpcError(ErrorCode.NOT_CONNECTED, "not connected")
-        return await self._conn.call(method, params, timeout=timeout)
-
     async def emit(self, event: str, data: Any = None) -> None:
         if not self._conn or not self._conn.is_open:
             raise RpcError(ErrorCode.NOT_CONNECTED, "not connected")
         await self._conn.emit(event, data)
-
-    async def notify(self, method: str, params: Any = None) -> None:
-        if not self._conn or not self._conn.is_open:
-            raise RpcError(ErrorCode.NOT_CONNECTED, "not connected")
-        await self._conn.notify(method, params)
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 

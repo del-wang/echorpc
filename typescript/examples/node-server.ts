@@ -7,13 +7,18 @@ import { RpcServer } from "../src/server.js";
 
 const server = new RpcServer({ port: 9100 });
 
-// Register the same methods as Python demo_server.py
-server.register("echo", (params) => params);
+// Register methods — handler receives (params, conn)
+server.register("echo", (params, conn) => params);
 server.register(
   "add",
-  (params: { a: number; b: number }) => params.a + params.b,
+  (params: { a: number; b: number }, conn) => params.a + params.b,
 );
-server.register("server.time", () => new Date().toISOString());
+server.register("server.time", (params, conn) => new Date().toISOString());
+
+// Server-level event listener — receives (data, conn)
+server.on("web.message", (data, conn) => {
+  console.log(`[event] web.message from ${conn.meta.role}:`, data);
+});
 
 server.onConnect((conn) => {
   const role = conn.meta.role ?? "unknown";

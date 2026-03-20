@@ -22,42 +22,42 @@ server = RpcServer(
 )
 
 
-# ── Register server-side RPC methods ────────────────────────────────────────
+# ── Register server-side RPC methods (decorator style) ─────────────────────
 
-def handle_echo(params):
+@server.method("echo")
+def handle_echo(params, conn):
     """Echo back params."""
     return params
 
 
-def handle_add(params):
+@server.method("add")
+def handle_add(params, conn):
     """Add two numbers."""
     return {"sum": params["a"] + params["b"]}
 
 
-def handle_server_time(params):
+@server.method("server.time")
+def handle_server_time(params, conn):
     """Return server timestamp."""
     return {"time": time.time(), "iso": time.strftime("%Y-%m-%dT%H:%M:%S")}
 
 
-server.register("echo", handle_echo)
-server.register("add", handle_add)
-server.register("server.time", handle_server_time)
+# ── Event handling (decorator style) ──────────────────────────────────────
 
-# -- Event handling ────────────────────────────────────────────────────────
+@server.event("web.message")
+async def on_web_message(data, conn):
+    """Handle web messages — conn is the connection that emitted."""
+    logger.info("web message from %s: %s", conn.meta.get("role"), data)
 
-async def on_web_message(params):
-    """Handle web messages."""
-    logger.info("web message: %s", params)
 
 # ── Connection lifecycle logging ────────────────────────────────────────────
 
 def on_connect(conn: RpcConnection):
     logger.info("new connection (total: %d)", len(server.get_connections()))
-    conn.on("web.message", on_web_message)
 
 
 def on_disconnect(conn: RpcConnection):
-    role = conn._meta.get("role", "unknown")
+    role = conn.meta.get("role", "unknown")
     logger.info("%s disconnected (remaining: %d)", role, len(server.get_connections()) - 1)
 
 

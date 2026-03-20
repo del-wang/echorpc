@@ -2,7 +2,7 @@
 
 from .core import RpcError, ErrorCode, DEFAULT_TIMEOUT
 from .connection import RpcConnection
-from .server import RpcServer
+from .server import RpcServer, ServerHandler, ServerEventCallback
 from .client import RpcClient
 
 __all__ = [
@@ -11,5 +11,7 @@ __all__ = [
     "RpcConnection",
     "RpcServer",
     "RpcClient",
+    "ServerHandler",
+    "ServerEventCallback",
     "DEFAULT_TIMEOUT",
 ]

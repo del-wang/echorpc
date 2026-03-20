@@ -43,7 +43,7 @@ class RpcConnection:
         self._event_listeners: dict[str, list[EventCallback]] = {}
         self._closed = False
         self._ping_task: asyncio.Task[None] | None = None
-        self._meta: dict[str, Any] = {}  # arbitrary metadata (role, client_id, etc.)
+        self.meta: dict[str, Any] = {}  # arbitrary metadata (role, client_id, etc.)
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
@@ -99,13 +99,6 @@ class RpcConnection:
             self._pending.pop(req_id, None)
             raise RpcError(ErrorCode.TIMEOUT, "timeout")
 
-    async def notify(self, method: str, params: Any = None) -> None:
-        """Send a notification (no id, no response expected)."""
-        msg: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
-        if params is not None:
-            msg["params"] = params
-        await self._send(msg)
-
     async def emit(self, event: str, data: Any = None) -> None:
         await self._send(make_event(event, data))
 
@@ -156,7 +149,8 @@ class RpcConnection:
                     logger.exception("event handler error for %s", ev_name)
             return
 
-        # Incoming RPC call
+        # Incoming RPC call — run as task so the message loop stays unblocked
+        # (allows handlers to make nested calls back to the remote side)
         if method and req_id is not None:
             handler = self._handlers.get(method)
             if not handler:
@@ -164,17 +158,20 @@ class RpcConnection:
                     req_id, RpcError(ErrorCode.METHOD_NOT_FOUND, f"method not found: {method}")
                 ))
                 return
-            try:
-                result = handler(params)
-                if asyncio.iscoroutine(result) or asyncio.isfuture(result):
-                    result = await result
-                await self._send(make_response(req_id, result))
-            except RpcError as e:
-                await self._send(make_error_response(req_id, e))
-            except Exception as e:
-                await self._send(make_error_response(
-                    req_id, RpcError(ErrorCode.INTERNAL_ERROR, str(e))
-                ))
+            asyncio.create_task(self._handle_call(req_id, handler, params))
+
+    async def _handle_call(self, req_id: str | int, handler: Handler, params: Any) -> None:
+        try:
+            result = handler(params)
+            if asyncio.iscoroutine(result) or asyncio.isfuture(result):
+                result = await result
+            await self._send(make_response(req_id, result))
+        except RpcError as e:
+            await self._send(make_error_response(req_id, e))
+        except Exception as e:
+            await self._send(make_error_response(
+                req_id, RpcError(ErrorCode.INTERNAL_ERROR, str(e))
+            ))
 
     # ── Heartbeat ────────────────────────────────────────────────────────
 

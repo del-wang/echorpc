@@ -2,24 +2,34 @@
  * WebSocket JSON-RPC 2.0 server for Node.js.
  * Mirrors Python's RpcServer API.
  *
- * Requires the `ws` package.
- *
  * @example
  * import { RpcServer } from "viberpc/server";
  * const server = new RpcServer({ port: 9100 });
- * server.register("echo", (params) => params);
+ * server.register("echo", (params, conn) => params);
  * await server.start();
  */
 
-import {
-  type RpcHandler,
-  type EventCallback,
-  RpcError,
-  ErrorCode,
-} from "./core.js";
 import { RpcConnection } from "./connection.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
+
+/**
+ * Server-side RPC handler — receives the calling connection as `conn`.
+ * Use `conn` to call/emit back to the specific client.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ServerRpcHandler<T = any> = (
+  params: T,
+  conn: RpcConnection,
+) => any | Promise<any>;
+
+/**
+ * Server-side event callback — receives the emitting connection as `conn`.
+ */
+export type ServerEventCallback<T = unknown> = (
+  data: T,
+  conn: RpcConnection,
+) => void | Promise<void>;
 
 export type AuthHandler = (
   params: Record<string, unknown>,
@@ -52,7 +62,8 @@ export class RpcServer {
   private pingInterval: number;
 
   private _connections = new Set<RpcConnection>();
-  private _globalHandlers = new Map<string, RpcHandler>();
+  private _globalHandlers = new Map<string, ServerRpcHandler>();
+  private _globalEventListeners = new Map<string, ServerEventCallback[]>();
   private _onConnectCbs: OnConnectCallback[] = [];
   private _onDisconnectCbs: OnDisconnectCallback[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -114,12 +125,46 @@ export class RpcServer {
 
   // ── Registration ─────────────────────────────────────────────────────
 
-  register(method: string, handler: RpcHandler): void {
+  /**
+   * Register a global RPC method. The handler receives `(params, conn)` where
+   * `conn` is the `RpcConnection` that made the call.
+   *
+   * @example
+   * server.register("echo", (params, conn) => {
+   *   console.log("called by", conn.meta.role);
+   *   return params;
+   * });
+   */
+  register(method: string, handler: ServerRpcHandler): void {
     this._globalHandlers.set(method, handler);
   }
 
   unregister(method: string): void {
     this._globalHandlers.delete(method);
+  }
+
+  /**
+   * Listen for events emitted by clients. The callback receives `(data, conn)`
+   * where `conn` is the `RpcConnection` that emitted the event.
+   *
+   * @example
+   * server.on("chat.message", (data, conn) => {
+   *   server.broadcastEventExcept("chat.message", data, conn);
+   * });
+   */
+  on(event: string, callback: ServerEventCallback): void {
+    if (!this._globalEventListeners.has(event)) {
+      this._globalEventListeners.set(event, []);
+    }
+    this._globalEventListeners.get(event)!.push(callback);
+  }
+
+  off(event: string, callback: ServerEventCallback): void {
+    const cbs = this._globalEventListeners.get(event);
+    if (cbs) {
+      const idx = cbs.indexOf(callback);
+      if (idx !== -1) cbs.splice(idx, 1);
+    }
   }
 
   onConnect(cb: OnConnectCallback): void {
@@ -164,9 +209,16 @@ export class RpcServer {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const conn = new RpcConnection(ws as any, this.timeout, this.pingInterval);
 
-    // Register global handlers
+    // Register global handlers — wrap to inject conn
     for (const [method, handler] of this._globalHandlers) {
-      conn.register(method, handler);
+      conn.register(method, (params) => handler(params, conn));
+    }
+
+    // Register global event listeners — wrap to inject conn
+    for (const [event, callbacks] of this._globalEventListeners) {
+      for (const cb of callbacks) {
+        conn.on(event, (data) => cb(data, conn));
+      }
     }
 
     // Built-in auth

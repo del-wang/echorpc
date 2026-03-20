@@ -36,18 +36,18 @@ describe("TS Server: Basic RPC", () => {
 
   beforeAll(async () => {
     server = new RpcServer({ port: 0 });
-    server.register("echo", (params) => params);
-    server.register("add", (params: { a: number; b: number }) => ({
+    server.register("echo", (params, conn) => params);
+    server.register("add", (params: { a: number; b: number }, conn) => ({
       sum: params.a + params.b,
     }));
-    server.register("server.time", () => ({
+    server.register("server.time", (params, conn) => ({
       time: Date.now(),
       iso: new Date().toISOString(),
     }));
-    server.register("throws", () => {
+    server.register("throws", (params, conn) => {
       throw new RpcError(ErrorCode.INVALID_PARAMS, "bad params");
     });
-    server.register("throws.generic", () => {
+    server.register("throws.generic", (params, conn) => {
       throw new Error("something broke");
     });
     await server.start();
@@ -136,6 +136,55 @@ describe("TS Server: Basic RPC", () => {
   });
 });
 
+// ── Server handler receives conn ─────────────────────────────────────────
+
+describe("TS Server: Handler conn", () => {
+  let client: RpcClient;
+
+  beforeAll(async () => {
+    server = new RpcServer({ port: 0 });
+    // Handler uses conn to read caller's role
+    server.register("whoami", (params, conn) => ({
+      role: conn.meta.role,
+      authenticated: conn.meta.authenticated,
+    }));
+    // Handler uses conn to call back into the client
+    server.register("ask.client", async (params, conn) => {
+      const answer = await conn.call<string>("client.answer");
+      return { answer };
+    });
+    await server.start();
+    serverPort = server.address!.port;
+  });
+
+  afterAll(async () => {
+    await server.stop();
+  });
+  afterEach(() => {
+    client?.disconnect();
+  });
+
+  it("handler should receive conn with meta", async () => {
+    client = createClient("node");
+    client.connect();
+    await client.waitConnected(5000);
+    const result = await client.call<{ role: string; authenticated: boolean }>(
+      "whoami",
+    );
+    expect(result.role).toBe("node");
+    expect(result.authenticated).toBe(true);
+  });
+
+  it("handler should use conn to call back into client", async () => {
+    client = createClient("node");
+    client.register("client.answer", () => "42");
+    client.connect();
+    await client.waitConnected(5000);
+    const result = await client.call<{ answer: string }>("ask.client");
+    expect(result.answer).toBe("42");
+  });
+});
+
 // ── Bidirectional RPC (server calls client) ────────────────────────────
 
 describe("TS Server: Bidirectional RPC", () => {
@@ -143,7 +192,7 @@ describe("TS Server: Bidirectional RPC", () => {
 
   beforeAll(async () => {
     server = new RpcServer({ port: 0 });
-    server.register("echo", (params) => params);
+    server.register("echo", (params, conn) => params);
     await server.start();
     serverPort = server.address!.port;
   });
@@ -212,7 +261,37 @@ describe("TS Server: Events", () => {
     expect(events).toEqual([{ x: 42 }]);
   });
 
-  it("server should receive event emitted by client", async () => {
+  it("server should receive event emitted by client via server.on()", async () => {
+    // Use a fresh server so the listener is isolated
+    const freshServer = new RpcServer({ port: 0 });
+    const received: Array<{ data: unknown; role: unknown }> = [];
+    freshServer.on("client.hello", (data, conn) => {
+      received.push({ data, role: conn.meta.role });
+    });
+    await freshServer.start();
+    const port = freshServer.address!.port;
+
+    const c = new RpcClient(`ws://127.0.0.1:${port}`, {
+      token: "t",
+      role: "web",
+      autoReconnect: false,
+      pingInterval: 300_000,
+      WebSocket: WS,
+    });
+    c.connect();
+    await c.waitConnected(5000);
+
+    c.emit("client.hello", { from: "test" });
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(received).toEqual([{ data: { from: "test" }, role: "web" }]);
+
+    c.disconnect();
+    await new Promise((r) => setTimeout(r, 100));
+    await freshServer.stop();
+  });
+
+  it("server should receive event emitted by client via conn.on()", async () => {
     client = createClient();
     client.connect();
     await client.waitConnected(5000);
@@ -374,7 +453,7 @@ describe("TS Server: Custom auth handler", () => {
         return { ok: true };
       },
     });
-    authServer.register("echo", (p) => p);
+    authServer.register("echo", (p, conn) => p);
     await authServer.start();
     authPort = authServer.address!.port;
   });

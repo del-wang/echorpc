@@ -19,11 +19,11 @@ async def server():
     """Start a test server on a random port."""
     srv = RpcServer(host="127.0.0.1", port=0, ping_interval=300)
 
-    # Register test methods
-    srv.register("echo", lambda params: params)
-    srv.register("add", lambda params: {"sum": params["a"] + params["b"]})
+    # Register test methods — handlers now receive (params, conn)
+    srv.register("echo", lambda params, conn: params)
+    srv.register("add", lambda params, conn: {"sum": params["a"] + params["b"]})
 
-    async def _fail(params):
+    async def _fail(params, conn):
         raise RpcError(-100, "intentional error")
 
     srv.register("fail", _fail)
@@ -94,6 +94,47 @@ class TestBasicRpc:
         task.cancel()
 
 
+class TestHandlerconn:
+    """Test that server handlers receive conn (the calling connection)."""
+
+    async def test_handler_receives_conn_meta(self, server):
+        """Handler can read conn.meta to identify the caller."""
+        server.register("whoami", lambda params, conn: {
+            "role": conn.meta.get("role"),
+            "authenticated": conn.meta.get("authenticated"),
+        })
+
+        client = make_client(server.port, role="node")
+        task = asyncio.create_task(client.connect())
+        await client.wait_connected()
+
+        result = await client.call("whoami")
+        assert result["role"] == "node"
+        assert result["authenticated"] is True
+
+        await client.disconnect()
+        task.cancel()
+
+    async def test_handler_uses_conn_to_call_client(self, server):
+        """Handler can use conn to call back into the client."""
+        async def ask_client(params, conn):
+            answer = await conn.call("client.answer")
+            return {"answer": answer}
+
+        server.register("ask.client", ask_client)
+
+        client = make_client(server.port)
+        client.register("client.answer", lambda params: "42")
+        task = asyncio.create_task(client.connect())
+        await client.wait_connected()
+
+        result = await client.call("ask.client")
+        assert result["answer"] == "42"
+
+        await client.disconnect()
+        task.cancel()
+
+
 class TestBidirectionalRpc:
     async def test_server_calls_client(self, server):
         """Server can call methods registered on the client."""
@@ -132,7 +173,29 @@ class TestEvents:
         await client.disconnect()
         task.cancel()
 
-    async def test_server_receives_event(self, server):
+    async def test_server_receives_event_via_server_on(self, server):
+        """server.on() registers a global event listener with conn."""
+        received = []
+        server.on("client.hello", lambda data, conn: received.append({
+            "data": data,
+            "role": conn.meta.get("role"),
+        }))
+
+        client = make_client(server.port)
+        task = asyncio.create_task(client.connect())
+        await client.wait_connected()
+
+        await client.emit("client.hello", {"from": "test"})
+        await asyncio.sleep(0.1)
+
+        assert len(received) == 1
+        assert received[0] == {"data": {"from": "test"}, "role": "web"}
+
+        await client.disconnect()
+        task.cancel()
+
+    async def test_server_receives_event_via_conn_on(self, server):
+        """conn.on() on individual connection still works."""
         client = make_client(server.port)
         received = []
 
@@ -152,6 +215,84 @@ class TestEvents:
 
         await client.disconnect()
         task.cancel()
+
+
+class TestDecorators:
+    """Test @server.method() and @server.event() decorators."""
+
+    async def test_method_decorator(self):
+        srv = RpcServer(host="127.0.0.1", port=0, ping_interval=300)
+
+        @srv.method("echo")
+        def echo(params, conn):
+            return params
+
+        @srv.method()  # uses function name
+        def add(params, conn):
+            return {"sum": params["a"] + params["b"]}
+
+        await srv.start()
+        port = srv._server.sockets[0].getsockname()[1]
+
+        client = make_client(port)
+        task = asyncio.create_task(client.connect())
+        await client.wait_connected()
+
+        assert await client.call("echo", {"x": 1}) == {"x": 1}
+        assert await client.call("add", {"a": 3, "b": 4}) == {"sum": 7}
+
+        await client.disconnect()
+        task.cancel()
+        await srv.stop()
+
+    async def test_event_decorator(self):
+        srv = RpcServer(host="127.0.0.1", port=0, ping_interval=300)
+        received = []
+
+        @srv.event("chat.message")
+        def on_chat(data, conn):
+            received.append({"data": data, "role": conn.meta.get("role")})
+
+        await srv.start()
+        port = srv._server.sockets[0].getsockname()[1]
+
+        client = make_client(port)
+        task = asyncio.create_task(client.connect())
+        await client.wait_connected()
+
+        await client.emit("chat.message", {"msg": "hello"})
+        await asyncio.sleep(0.1)
+
+        assert len(received) == 1
+        assert received[0] == {"data": {"msg": "hello"}, "role": "web"}
+
+        await client.disconnect()
+        task.cancel()
+        await srv.stop()
+
+    async def test_event_decorator_default_name(self):
+        srv = RpcServer(host="127.0.0.1", port=0, ping_interval=300)
+        received = []
+
+        @srv.event()  # uses function name "ping_event"
+        def ping_event(data, conn):
+            received.append(data)
+
+        await srv.start()
+        port = srv._server.sockets[0].getsockname()[1]
+
+        client = make_client(port)
+        task = asyncio.create_task(client.connect())
+        await client.wait_connected()
+
+        await client.emit("ping_event", {"ts": 123})
+        await asyncio.sleep(0.1)
+
+        assert received == [{"ts": 123}]
+
+        await client.disconnect()
+        task.cancel()
+        await srv.stop()
 
 
 class TestMultipleWebClients:
