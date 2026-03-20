@@ -1,0 +1,148 @@
+/**
+ * JSON-RPC 2.0 core types and utilities.
+ * Universal — works in Node.js and browsers.
+ */
+
+// ── Types ───────────────────────────────────────────────────────────────────
+
+export type RpcId = string | number;
+
+export interface RpcRequest {
+  jsonrpc: "2.0";
+  id: RpcId;
+  method: string;
+  params?: unknown;
+}
+
+export interface RpcResponse {
+  jsonrpc: "2.0";
+  id: RpcId;
+  result?: unknown;
+  error?: { code: number; message: string; data?: unknown };
+}
+
+export interface RpcEvent {
+  jsonrpc: "2.0";
+  method: `event:${string}`;
+  params?: unknown;
+}
+
+// ── Error codes ─────────────────────────────────────────────────────────────
+
+export enum ErrorCode {
+  PARSE_ERROR = -32700,
+  INVALID_REQUEST = -32600,
+  METHOD_NOT_FOUND = -32601,
+  INVALID_PARAMS = -32602,
+  INTERNAL_ERROR = -32603,
+  NOT_CONNECTED = -1,
+  TIMEOUT = -2,
+  AUTH_FAILED = -3,
+}
+
+export class RpcError extends Error {
+  constructor(
+    public code: number,
+    message: string,
+    public data?: unknown,
+  ) {
+    super(message);
+    this.name = "RpcError";
+  }
+}
+
+// ── WebSocket abstraction ───────────────────────────────────────────────────
+
+/** Minimal WebSocket interface that both native WebSocket and `ws` satisfy. */
+export interface IWebSocket {
+  readonly readyState: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onopen: ((ev: any) => void) | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onclose: ((ev: any) => void) | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onerror: ((ev: any) => void) | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onmessage: ((ev: any) => void) | null;
+  send(data: string): void;
+  close(): void;
+}
+
+/**
+ * Constructor signature for WebSocket implementations.
+ * Both `ws` and native `WebSocket` satisfy this.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type WebSocketConstructor = new (
+  url: string,
+  ...args: any[]
+) => IWebSocket;
+
+// ── Options ─────────────────────────────────────────────────────────────────
+
+export interface ClientOptions {
+  /** Auth token for auth.login handshake */
+  token?: string;
+  /** Client role sent during auth (default: "web") */
+  role?: string;
+  /** Arbitrary client ID */
+  clientId?: string;
+  /** RPC call timeout in ms (default: 30000) */
+  timeout?: number;
+  /** Heartbeat interval in ms (default: 30000) */
+  pingInterval?: number;
+  /** Max reconnect delay in ms (default: 5000) */
+  maxReconnectDelay?: number;
+  /** Enable auto-reconnect (default: true) */
+  autoReconnect?: boolean;
+  /**
+   * WebSocket constructor to use.
+   * - Browser: omit (uses native `WebSocket`)
+   * - Node.js: pass `WebSocket` from the `ws` package
+   */
+  WebSocket?: WebSocketConstructor;
+}
+
+export const DEFAULT_OPTIONS: Required<Omit<ClientOptions, "WebSocket">> & {
+  WebSocket: WebSocketConstructor | undefined;
+} = {
+  token: "",
+  role: "web",
+  clientId: "",
+  timeout: 30_000,
+  pingInterval: 30_000,
+  maxReconnectDelay: 5_000,
+  autoReconnect: true,
+  WebSocket: undefined,
+};
+
+// ── Handler types ───────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type RpcHandler<T = any> = (params: T) => any | Promise<any>;
+export type EventCallback<T = unknown> = (data: T) => void;
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+let idCounter = 0;
+export function nextId(): string {
+  return `${Date.now().toString(36)}-${(idCounter++).toString(36)}`;
+}
+
+/** Resolve the WebSocket constructor: explicit option > globalThis > throw. */
+export function resolveWebSocket(
+  explicit?: WebSocketConstructor,
+): WebSocketConstructor {
+  if (explicit) return explicit;
+  if (
+    typeof globalThis !== "undefined" &&
+    (globalThis as Record<string, unknown>).WebSocket
+  ) {
+    return (globalThis as Record<string, unknown>)
+      .WebSocket as WebSocketConstructor;
+  }
+  throw new Error(
+    "No WebSocket implementation found. " +
+      "In Node.js, pass the `ws` package: new RpcClient(url, { WebSocket: require('ws') })",
+  );
+}
