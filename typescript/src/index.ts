@@ -10,6 +10,9 @@ export {
   type EventCallback,
   type IWebSocket,
   type WebSocketConstructor,
+  type RpcRequest,
+  type RpcResponse,
+  type RpcNotification,
 } from "./core.js";
 export type {
   ServerOptions,

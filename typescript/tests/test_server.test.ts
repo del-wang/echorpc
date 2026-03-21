@@ -11,7 +11,6 @@ import {
   RpcConnection,
   RpcError,
   ErrorCode,
-  type WebSocketConstructor,
 } from "../src/index.js";
 
 const WS = WebSocket;
@@ -68,27 +67,30 @@ describe("TS Server: Basic RPC", () => {
     expect(client.connected).toBe(true);
   });
 
-  it("should call echo", async () => {
+  it("should request echo", async () => {
     client = createClient();
     client.connect();
     await client.waitConnected(5000);
-    const result = await client.call("echo", { msg: "hello" });
+    const result = await client.request("echo", { msg: "hello" });
     expect(result).toEqual({ msg: "hello" });
   });
 
-  it("should call add", async () => {
+  it("should request add", async () => {
     client = createClient();
     client.connect();
     await client.waitConnected(5000);
-    const result = await client.call<{ sum: number }>("add", { a: 10, b: 20 });
+    const result = await client.request<{ sum: number }>("add", {
+      a: 10,
+      b: 20,
+    });
     expect(result.sum).toBe(30);
   });
 
-  it("should call server.time", async () => {
+  it("should request server.time", async () => {
     client = createClient();
     client.connect();
     await client.waitConnected(5000);
-    const result = await client.call<{ time: number; iso: string }>(
+    const result = await client.request<{ time: number; iso: string }>(
       "server.time",
     );
     expect(result.time).toBeGreaterThan(0);
@@ -100,7 +102,7 @@ describe("TS Server: Basic RPC", () => {
     client.connect();
     await client.waitConnected(5000);
     try {
-      await client.call("nonexistent");
+      await client.request("nonexistent");
       expect.unreachable("should have thrown");
     } catch (e) {
       expect(e).toBeInstanceOf(RpcError);
@@ -113,7 +115,7 @@ describe("TS Server: Basic RPC", () => {
     client.connect();
     await client.waitConnected(5000);
     try {
-      await client.call("throws");
+      await client.request("throws");
       expect.unreachable("should have thrown");
     } catch (e) {
       expect(e).toBeInstanceOf(RpcError);
@@ -127,7 +129,7 @@ describe("TS Server: Basic RPC", () => {
     client.connect();
     await client.waitConnected(5000);
     try {
-      await client.call("throws.generic");
+      await client.request("throws.generic");
       expect.unreachable("should have thrown");
     } catch (e) {
       expect(e).toBeInstanceOf(RpcError);
@@ -148,9 +150,9 @@ describe("TS Server: Handler conn", () => {
       role: conn.meta.role,
       authenticated: conn.meta.authenticated,
     }));
-    // Handler uses conn to call back into the client
+    // Handler uses conn to request back into the client
     server.register("ask.client", async (params, conn) => {
-      const answer = await conn.call<string>("client.answer");
+      const answer = await conn.request<string>("client.answer");
       return { answer };
     });
     await server.start();
@@ -168,24 +170,25 @@ describe("TS Server: Handler conn", () => {
     client = createClient("node");
     client.connect();
     await client.waitConnected(5000);
-    const result = await client.call<{ role: string; authenticated: boolean }>(
-      "whoami",
-    );
+    const result = await client.request<{
+      role: string;
+      authenticated: boolean;
+    }>("whoami");
     expect(result.role).toBe("node");
     expect(result.authenticated).toBe(true);
   });
 
-  it("handler should use conn to call back into client", async () => {
+  it("handler should use conn to request back into client", async () => {
     client = createClient("node");
     client.register("client.answer", () => "42");
     client.connect();
     await client.waitConnected(5000);
-    const result = await client.call<{ answer: string }>("ask.client");
+    const result = await client.request<{ answer: string }>("ask.client");
     expect(result.answer).toBe("42");
   });
 });
 
-// ── Bidirectional RPC (server calls client) ────────────────────────────
+// ── Bidirectional RPC (server requests client) ────────────────────────
 
 describe("TS Server: Bidirectional RPC", () => {
   let client: RpcClient;
@@ -204,7 +207,7 @@ describe("TS Server: Bidirectional RPC", () => {
     client?.disconnect();
   });
 
-  it("should call a method registered on the client from the server", async () => {
+  it("should request a method registered on the client from the server", async () => {
     client = createClient("node");
     client.register("client.ping", () => "pong");
     client.connect();
@@ -212,11 +215,11 @@ describe("TS Server: Bidirectional RPC", () => {
 
     const conn = server.getConnections("node")[0];
     expect(conn).toBeDefined();
-    const result = await conn.call<string>("client.ping");
+    const result = await conn.request<string>("client.ping");
     expect(result).toBe("pong");
   });
 
-  it("should call client with params and get result", async () => {
+  it("should request client with params and get result", async () => {
     client = createClient("node");
     client.register(
       "client.add",
@@ -226,14 +229,14 @@ describe("TS Server: Bidirectional RPC", () => {
     await client.waitConnected(5000);
 
     const conn = server.getConnections("node")[0];
-    const result = await conn.call<number>("client.add", { a: 7, b: 8 });
+    const result = await conn.request<number>("client.add", { a: 7, b: 8 });
     expect(result).toBe(15);
   });
 });
 
-// ── Events ─────────────────────────────────────────────────────────────
+// ── Pub/Sub (notifications) ─────────────────────────────────────────
 
-describe("TS Server: Events", () => {
+describe("TS Server: Pub/Sub", () => {
   let client: RpcClient;
 
   beforeAll(async () => {
@@ -249,23 +252,23 @@ describe("TS Server: Events", () => {
     client?.disconnect();
   });
 
-  it("client should receive broadcast event from server", async () => {
+  it("client should receive broadcast notification from server", async () => {
     client = createClient();
     const events: unknown[] = [];
-    client.on("test.event", (data) => events.push(data));
+    client.subscribe("test.event", (data) => events.push(data));
     client.connect();
     await client.waitConnected(5000);
 
-    server.broadcastEvent("test.event", { x: 42 });
+    server.broadcast("test.event", { x: 42 });
     await new Promise((r) => setTimeout(r, 200));
     expect(events).toEqual([{ x: 42 }]);
   });
 
-  it("server should receive event emitted by client via server.on()", async () => {
-    // Use a fresh server so the listener is isolated
+  it("server should receive notification published by client via server.subscribe()", async () => {
+    // Use a fresh server so the subscriber is isolated
     const freshServer = new RpcServer({ port: 0 });
     const received: Array<{ data: unknown; role: unknown }> = [];
-    freshServer.on("client.hello", (data, conn) => {
+    freshServer.subscribe("client.hello", (data, conn) => {
       received.push({ data, role: conn.meta.role });
     });
     await freshServer.start();
@@ -281,7 +284,7 @@ describe("TS Server: Events", () => {
     c.connect();
     await c.waitConnected(5000);
 
-    c.emit("client.hello", { from: "test" });
+    c.publish("client.hello", { from: "test" });
     await new Promise((r) => setTimeout(r, 200));
 
     expect(received).toEqual([{ data: { from: "test" }, role: "web" }]);
@@ -291,27 +294,27 @@ describe("TS Server: Events", () => {
     await freshServer.stop();
   });
 
-  it("server should receive event emitted by client via conn.on()", async () => {
+  it("server should receive notification via conn.subscribe()", async () => {
     client = createClient();
     client.connect();
     await client.waitConnected(5000);
 
     const received: unknown[] = [];
     const conn = server.getConnections("web")[0];
-    conn.on("client.hello", (data) => received.push(data));
+    conn.subscribe("client.hello", (data) => received.push(data));
 
-    client.emit("client.hello", { from: "test" });
+    client.publish("client.hello", { from: "test" });
     await new Promise((r) => setTimeout(r, 200));
     expect(received).toEqual([{ from: "test" }]);
   });
 
-  it("broadcastEventExcept should skip the excluded connection", async () => {
+  it("broadcastExcept should skip the excluded connection", async () => {
     const client1 = createClient("web");
     const client2 = createClient("web");
     const events1: unknown[] = [];
     const events2: unknown[] = [];
-    client1.on("selective", (d) => events1.push(d));
-    client2.on("selective", (d) => events2.push(d));
+    client1.subscribe("selective", (d) => events1.push(d));
+    client2.subscribe("selective", (d) => events2.push(d));
 
     client1.connect();
     await client1.waitConnected(5000);
@@ -320,7 +323,7 @@ describe("TS Server: Events", () => {
 
     const conns = server.getConnections("web");
     // Exclude the first connection
-    server.broadcastEventExcept("selective", { msg: "hi" }, conns[0]);
+    server.broadcastExcept("selective", { msg: "hi" }, conns[0]);
     await new Promise((r) => setTimeout(r, 200));
 
     // One should have received it, the other should not
@@ -329,6 +332,98 @@ describe("TS Server: Events", () => {
 
     client1.disconnect();
     client2.disconnect();
+  });
+});
+
+// ── Batch requests ──────────────────────────────────────────────────
+
+describe("TS Server: Batch requests", () => {
+  let client: RpcClient;
+
+  beforeAll(async () => {
+    server = new RpcServer({ port: 0 });
+    server.register("echo", (params, conn) => params);
+    server.register("add", (params: { a: number; b: number }, conn) => ({
+      sum: params.a + params.b,
+    }));
+    server.register("fail", (params, conn) => {
+      throw new RpcError(-100, "intentional error");
+    });
+    server.register("slow_echo", async (params, conn) => {
+      await new Promise((r) =>
+        setTimeout(r, Math.random() * 50 + 10),
+      );
+      return params;
+    });
+    await server.start();
+    serverPort = server.address!.port;
+  });
+
+  afterAll(async () => {
+    await server.stop();
+  });
+  afterEach(() => {
+    client?.disconnect();
+  });
+
+  it("should handle basic batch request", async () => {
+    client = createClient();
+    client.connect();
+    await client.waitConnected(5000);
+
+    const results = await client.batchRequest([
+      ["echo", { x: 1 }],
+      ["add", { a: 10, b: 20 }],
+      ["echo", { x: 2 }],
+    ]);
+
+    expect(results).toHaveLength(3);
+    expect(results[0]).toEqual({ x: 1 });
+    expect(results[1]).toEqual({ sum: 30 });
+    expect(results[2]).toEqual({ x: 2 });
+  });
+
+  it("should handle batch with errors", async () => {
+    client = createClient();
+    client.connect();
+    await client.waitConnected(5000);
+
+    const results = await client.batchRequest([
+      ["echo", { ok: true }],
+      ["fail", null],
+      ["add", { a: 1, b: 2 }],
+    ]);
+
+    expect(results).toHaveLength(3);
+    expect(results[0]).toEqual({ ok: true });
+    expect(results[1]).toBeInstanceOf(RpcError);
+    expect((results[1] as unknown as RpcError).code).toBe(-100);
+    expect(results[2]).toEqual({ sum: 3 });
+  });
+
+  it("should handle empty batch", async () => {
+    client = createClient();
+    client.connect();
+    await client.waitConnected(5000);
+
+    const results = await client.batchRequest([]);
+    expect(results).toEqual([]);
+  });
+
+  it("should preserve order regardless of response timing", async () => {
+    client = createClient();
+    client.connect();
+    await client.waitConnected(5000);
+
+    const calls: Array<[string, unknown]> = Array.from({ length: 10 }, (_, i) => [
+      "slow_echo",
+      { i },
+    ]);
+    const results = await client.batchRequest(calls);
+
+    for (let i = 0; i < results.length; i++) {
+      expect(results[i]).toEqual({ i });
+    }
   });
 });
 
@@ -418,12 +513,12 @@ describe("TS Server: Connection management", () => {
     const events: unknown[][] = [[], [], []];
 
     clients.forEach((c, i) => {
-      c.on("multi.test", (d) => events[i].push(d));
+      c.subscribe("multi.test", (d) => events[i].push(d));
       c.connect();
     });
     await Promise.all(clients.map((c) => c.waitConnected(5000)));
 
-    server.broadcastEvent("multi.test", { n: 1 }, "web");
+    server.broadcast("multi.test", { n: 1 }, "web");
     await new Promise((r) => setTimeout(r, 200));
 
     for (const evList of events) {
@@ -472,7 +567,7 @@ describe("TS Server: Custom auth handler", () => {
     client.connect();
     await client.waitConnected(5000);
     expect(client.connected).toBe(true);
-    const result = await client.call("echo", "ok");
+    const result = await client.request("echo", "ok");
     expect(result).toBe("ok");
     client.disconnect();
   });

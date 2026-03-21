@@ -42,27 +42,30 @@ describe("Basic RPC", () => {
     expect(client.connected).toBe(true);
   });
 
-  it("should call echo", async () => {
+  it("should request echo", async () => {
     client = createClient();
     client.connect();
     await client.waitConnected(5000);
-    const result = await client.call("echo", { msg: "test" });
+    const result = await client.request("echo", { msg: "test" });
     expect(result).toEqual({ msg: "test" });
   });
 
-  it("should call add", async () => {
+  it("should request add", async () => {
     client = createClient();
     client.connect();
     await client.waitConnected(5000);
-    const result = await client.call<{ sum: number }>("add", { a: 5, b: 3 });
+    const result = await client.request<{ sum: number }>("add", {
+      a: 5,
+      b: 3,
+    });
     expect(result.sum).toBe(8);
   });
 
-  it("should call server.time", async () => {
+  it("should request server.time", async () => {
     client = createClient();
     client.connect();
     await client.waitConnected(5000);
-    const result = await client.call<{ time: number; iso: string }>(
+    const result = await client.request<{ time: number; iso: string }>(
       "server.time",
     );
     expect(result.time).toBeGreaterThan(0);
@@ -74,7 +77,7 @@ describe("Basic RPC", () => {
     client.connect();
     await client.waitConnected(5000);
     try {
-      await client.call("nonexistent");
+      await client.request("nonexistent");
       expect.unreachable("should have thrown");
     } catch (e) {
       expect(e).toBeInstanceOf(RpcError);
@@ -82,10 +85,10 @@ describe("Basic RPC", () => {
     }
   });
 
-  it("should receive events", async () => {
+  it("should receive notifications", async () => {
     client = createClient();
     const events: unknown[] = [];
-    client.on("server.heartbeat", (data) => events.push(data));
+    client.subscribe("server.heartbeat", (data) => events.push(data));
     client.connect();
     await client.waitConnected(5000);
     // Wait for at least one heartbeat (server sends every 5s)

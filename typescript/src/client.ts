@@ -43,7 +43,7 @@ export class RpcClient {
 
   private handlers = new Map<string, RpcHandler>();
   private pending = new Map<RpcId, PendingCall>();
-  private eventListeners = new Map<string, Set<EventCallback>>();
+  private subscribers = new Map<string, Set<EventCallback>>();
 
   private _connected = false;
   private reconnectAttempt = 0;
@@ -96,7 +96,7 @@ export class RpcClient {
     });
   }
 
-  // ── Public API ────────────────────────────────────────────────────────
+  // ── RPC methods ────────────────────────────────────────────────────
 
   register(method: string, handler: RpcHandler): void {
     this.handlers.set(method, handler);
@@ -106,7 +106,7 @@ export class RpcClient {
     this.handlers.delete(method);
   }
 
-  async call<T = unknown>(method: string, params?: unknown): Promise<T> {
+  async request<T = unknown>(method: string, params?: unknown): Promise<T> {
     if (!this._connected || !this.ws) {
       throw new RpcError(ErrorCode.NOT_CONNECTED, "not connected");
     }
@@ -125,18 +125,61 @@ export class RpcClient {
     });
   }
 
-  emit(event: string, data?: unknown): void {
-    this._send({ jsonrpc: "2.0", method: `event:${event}`, params: data });
+  /**
+   * Send a batch of RPC requests. Returns results in request order.
+   * If any individual call returns an error, the corresponding element
+   * will be an RpcError instance.
+   */
+  async batchRequest<T = unknown>(
+    calls: Array<[method: string, params?: unknown]>,
+  ): Promise<T[]> {
+    if (!this._connected || !this.ws) {
+      throw new RpcError(ErrorCode.NOT_CONNECTED, "not connected");
+    }
+    if (calls.length === 0) return [];
+
+    const requests: Record<string, unknown>[] = [];
+    const promises: Promise<unknown>[] = [];
+
+    for (const [method, params] of calls) {
+      const id = nextId();
+      const p = new Promise<unknown>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(id);
+          reject(new RpcError(ErrorCode.TIMEOUT, "batch timeout"));
+        }, this.opts.timeout);
+        this.pending.set(id, {
+          resolve,
+          reject,
+          timer,
+        });
+      });
+      // Wrap so errors become values
+      promises.push(p.catch((err) => err));
+      requests.push({ jsonrpc: "2.0", id, method, params });
+    }
+
+    this._send(requests);
+    return Promise.all(promises) as Promise<T[]>;
   }
 
-  on(event: string, callback: EventCallback): void {
-    if (!this.eventListeners.has(event))
-      this.eventListeners.set(event, new Set());
-    this.eventListeners.get(event)!.add(callback);
+  // ── Pub/Sub ─────────────────────────────────────────────────────────
+
+  /** Send a JSON-RPC notification (no response expected). */
+  publish(method: string, params?: unknown): void {
+    this._send({ jsonrpc: "2.0", method, params });
   }
 
-  off(event: string, callback: EventCallback): void {
-    this.eventListeners.get(event)?.delete(callback);
+  /** Subscribe to incoming notifications with the given method name. */
+  subscribe(method: string, callback: EventCallback): void {
+    if (!this.subscribers.has(method))
+      this.subscribers.set(method, new Set());
+    this.subscribers.get(method)!.add(callback);
+  }
+
+  /** Remove a notification subscription. */
+  unsubscribe(method: string, callback: EventCallback): void {
+    this.subscribers.get(method)?.delete(callback);
   }
 
   // ── Internal connect ──────────────────────────────────────────────────
@@ -156,7 +199,14 @@ export class RpcClient {
     this.ws.onmessage = (e: { data: unknown }) => {
       try {
         const msg = JSON.parse(String(e.data));
-        this._dispatch(msg);
+        if (Array.isArray(msg)) {
+          // Batch response — dispatch each individually
+          for (const item of msg) {
+            this._dispatch(item);
+          }
+        } else {
+          this._dispatch(msg);
+        }
       } catch {
         // ignore non-JSON
       }
@@ -170,7 +220,7 @@ export class RpcClient {
 
     if (this.opts.token) {
       try {
-        await this.call("auth.login", {
+        await this.request("auth.login", {
           token: this.opts.token,
           role: this.opts.role,
           client_id: this.opts.clientId,
@@ -214,7 +264,7 @@ export class RpcClient {
 
     const id = msg.id as RpcId | undefined;
 
-    // Response to our call
+    // Response to our request
     if (id !== undefined && this.pending.has(id)) {
       const { resolve, reject, timer } = this.pending.get(id)!;
       clearTimeout(timer);
@@ -227,14 +277,14 @@ export class RpcClient {
       return;
     }
 
-    // Event
-    if (typeof method === "string" && method.startsWith("event:")) {
-      const evName = method.slice(6);
-      this.eventListeners.get(evName)?.forEach((fn) => fn(msg.params));
+    // Notification (has method, no id) — fire subscribers
+    if (typeof method === "string" && id === undefined) {
+      const subs = this.subscribers.get(method);
+      if (subs) for (const fn of subs) fn(msg.params);
       return;
     }
 
-    // Incoming RPC call
+    // Incoming RPC call (has method + id)
     if (method && id !== undefined) {
       const handler = this.handlers.get(method);
       if (!handler) {
@@ -260,7 +310,11 @@ export class RpcClient {
           this._send({
             jsonrpc: "2.0",
             id,
-            error: { code: rpcErr.code, message: rpcErr.message },
+            error: {
+              code: rpcErr.code,
+              message: rpcErr.message,
+              ...(rpcErr.data !== undefined ? { data: rpcErr.data } : {}),
+            },
           });
         }
       })();
@@ -310,7 +364,7 @@ export class RpcClient {
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
-  private _send(msg: Record<string, unknown>): void {
+  private _send(msg: Record<string, unknown> | Record<string, unknown>[]): void {
     if (this.ws?.readyState === WS_OPEN) {
       this.ws.send(JSON.stringify(msg));
     }

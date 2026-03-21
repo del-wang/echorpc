@@ -11,15 +11,16 @@ from typing import Any
 # ── Error codes ──────────────────────────────────────────────────────────────
 
 class ErrorCode(IntEnum):
+    # Standard JSON-RPC 2.0 error codes
     PARSE_ERROR = -32700
     INVALID_REQUEST = -32600
     METHOD_NOT_FOUND = -32601
     INVALID_PARAMS = -32602
     INTERNAL_ERROR = -32603
-    # Custom codes
-    NOT_CONNECTED = -1
-    TIMEOUT = -2
-    AUTH_FAILED = -3
+    # Implementation-defined server errors (-32000 to -32099)
+    NOT_CONNECTED = -32001
+    TIMEOUT = -32002
+    AUTH_FAILED = -32003
 
 
 class RpcError(Exception):
@@ -55,10 +56,11 @@ def make_error_response(req_id: str | int | None, error: RpcError) -> dict:
     return {"jsonrpc": "2.0", "id": req_id, "error": error.to_dict()}
 
 
-def make_event(event: str, data: Any = None) -> dict:
-    msg: dict[str, Any] = {"jsonrpc": "2.0", "method": f"event:{event}"}
-    if data is not None:
-        msg["params"] = data
+def make_notification(method: str, params: Any = None) -> dict:
+    """Create a JSON-RPC 2.0 notification (request without id)."""
+    msg: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+    if params is not None:
+        msg["params"] = params
     return msg
 
 

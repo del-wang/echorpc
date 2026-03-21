@@ -15,9 +15,9 @@ server.register(
 );
 server.register("server.time", (params, conn) => new Date().toISOString());
 
-// Server-level event listener — receives (data, conn)
-server.on("web.message", (data, conn) => {
-  console.log(`[event] web.message from ${conn.meta.role}:`, data);
+// Server-level notification subscriber — receives (data, conn)
+server.subscribe("web.message", (data, conn) => {
+  console.log(`[notification] web.message from ${conn.meta.role}:`, data);
 });
 
 server.onConnect((conn) => {
@@ -33,7 +33,7 @@ server.onDisconnect((conn) => {
 
 // Broadcast heartbeat every 5s (like Python demo)
 setInterval(() => {
-  server.broadcastEvent("server.heartbeat", { ts: Date.now() });
+  server.broadcast("server.heartbeat", { ts: Date.now() });
 }, 5_000);
 
 await server.start();

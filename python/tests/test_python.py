@@ -3,8 +3,6 @@
 # python -m pytest tests/test_python.py -v
 
 import asyncio
-import sys
-import os
 
 import pytest
 import pytest_asyncio
@@ -52,7 +50,7 @@ class TestBasicRpc:
         task = asyncio.create_task(client.connect())
         await client.wait_connected()
 
-        result = await client.call("echo", {"hello": "world"})
+        result = await client.request("echo", {"hello": "world"})
         assert result == {"hello": "world"}
 
         await client.disconnect()
@@ -63,7 +61,7 @@ class TestBasicRpc:
         task = asyncio.create_task(client.connect())
         await client.wait_connected()
 
-        result = await client.call("add", {"a": 10, "b": 20})
+        result = await client.request("add", {"a": 10, "b": 20})
         assert result == {"sum": 30}
 
         await client.disconnect()
@@ -75,7 +73,7 @@ class TestBasicRpc:
         await client.wait_connected()
 
         with pytest.raises(RpcError) as exc_info:
-            await client.call("nonexistent")
+            await client.request("nonexistent")
         assert exc_info.value.code == ErrorCode.METHOD_NOT_FOUND
 
         await client.disconnect()
@@ -87,14 +85,14 @@ class TestBasicRpc:
         await client.wait_connected()
 
         with pytest.raises(RpcError) as exc_info:
-            await client.call("fail")
+            await client.request("fail")
         assert exc_info.value.code == -100
 
         await client.disconnect()
         task.cancel()
 
 
-class TestHandlerconn:
+class TestHandlerConn:
     """Test that server handlers receive conn (the calling connection)."""
 
     async def test_handler_receives_conn_meta(self, server):
@@ -108,17 +106,17 @@ class TestHandlerconn:
         task = asyncio.create_task(client.connect())
         await client.wait_connected()
 
-        result = await client.call("whoami")
+        result = await client.request("whoami")
         assert result["role"] == "node"
         assert result["authenticated"] is True
 
         await client.disconnect()
         task.cancel()
 
-    async def test_handler_uses_conn_to_call_client(self, server):
+    async def test_handler_uses_conn_to_request_client(self, server):
         """Handler can use conn to call back into the client."""
         async def ask_client(params, conn):
-            answer = await conn.call("client.answer")
+            answer = await conn.request("client.answer")
             return {"answer": answer}
 
         server.register("ask.client", ask_client)
@@ -128,7 +126,7 @@ class TestHandlerconn:
         task = asyncio.create_task(client.connect())
         await client.wait_connected()
 
-        result = await client.call("ask.client")
+        result = await client.request("ask.client")
         assert result["answer"] == "42"
 
         await client.disconnect()
@@ -136,7 +134,7 @@ class TestHandlerconn:
 
 
 class TestBidirectionalRpc:
-    async def test_server_calls_client(self, server):
+    async def test_server_requests_client(self, server):
         """Server can call methods registered on the client."""
         client = make_client(server.port)
         client.register("client.ping", lambda params: {"pong": True})
@@ -144,27 +142,27 @@ class TestBidirectionalRpc:
         task = asyncio.create_task(client.connect())
         await client.wait_connected()
 
-        # Get server-side connection and call client
+        # Get server-side connection and request client
         conns = server.get_connections()
         assert len(conns) == 1
-        result = await conns[0].call("client.ping")
+        result = await conns[0].request("client.ping")
         assert result == {"pong": True}
 
         await client.disconnect()
         task.cancel()
 
 
-class TestEvents:
-    async def test_client_receives_event(self, server):
+class TestPubSub:
+    async def test_client_receives_notification(self, server):
         client = make_client(server.port)
         received = []
-        client.on("test.event", lambda data: received.append(data))
+        client.subscribe("test.event", lambda data: received.append(data))
 
         task = asyncio.create_task(client.connect())
         await client.wait_connected()
 
-        # Server broadcasts event
-        await server.broadcast_event("test.event", {"value": 42})
+        # Server broadcasts notification
+        await server.broadcast("test.event", {"value": 42})
         await asyncio.sleep(0.1)
 
         assert len(received) == 1
@@ -173,10 +171,10 @@ class TestEvents:
         await client.disconnect()
         task.cancel()
 
-    async def test_server_receives_event_via_server_on(self, server):
-        """server.on() registers a global event listener with conn."""
+    async def test_server_receives_notification_via_subscribe(self, server):
+        """server.subscribe() registers a global notification listener with conn."""
         received = []
-        server.on("client.hello", lambda data, conn: received.append({
+        server.subscribe("client.hello", lambda data, conn: received.append({
             "data": data,
             "role": conn.meta.get("role"),
         }))
@@ -185,7 +183,7 @@ class TestEvents:
         task = asyncio.create_task(client.connect())
         await client.wait_connected()
 
-        await client.emit("client.hello", {"from": "test"})
+        await client.publish("client.hello", {"from": "test"})
         await asyncio.sleep(0.1)
 
         assert len(received) == 1
@@ -194,20 +192,20 @@ class TestEvents:
         await client.disconnect()
         task.cancel()
 
-    async def test_server_receives_event_via_conn_on(self, server):
-        """conn.on() on individual connection still works."""
+    async def test_server_receives_notification_via_conn_subscribe(self, server):
+        """conn.subscribe() on individual connection still works."""
         client = make_client(server.port)
         received = []
 
         def on_connect(conn):
-            conn.on("client.hello", lambda data: received.append(data))
+            conn.subscribe("client.hello", lambda data: received.append(data))
 
         server.on_connect(on_connect)
 
         task = asyncio.create_task(client.connect())
         await client.wait_connected()
 
-        await client.emit("client.hello", {"from": "test"})
+        await client.publish("client.hello", {"from": "test"})
         await asyncio.sleep(0.1)
 
         assert len(received) == 1
@@ -218,7 +216,7 @@ class TestEvents:
 
 
 class TestDecorators:
-    """Test @server.method() and @server.event() decorators."""
+    """Test @server.method() and @server.subscription() decorators."""
 
     async def test_method_decorator(self):
         srv = RpcServer(host="127.0.0.1", port=0, ping_interval=300)
@@ -238,18 +236,18 @@ class TestDecorators:
         task = asyncio.create_task(client.connect())
         await client.wait_connected()
 
-        assert await client.call("echo", {"x": 1}) == {"x": 1}
-        assert await client.call("add", {"a": 3, "b": 4}) == {"sum": 7}
+        assert await client.request("echo", {"x": 1}) == {"x": 1}
+        assert await client.request("add", {"a": 3, "b": 4}) == {"sum": 7}
 
         await client.disconnect()
         task.cancel()
         await srv.stop()
 
-    async def test_event_decorator(self):
+    async def test_subscription_decorator(self):
         srv = RpcServer(host="127.0.0.1", port=0, ping_interval=300)
         received = []
 
-        @srv.event("chat.message")
+        @srv.subscription("chat.message")
         def on_chat(data, conn):
             received.append({"data": data, "role": conn.meta.get("role")})
 
@@ -260,7 +258,7 @@ class TestDecorators:
         task = asyncio.create_task(client.connect())
         await client.wait_connected()
 
-        await client.emit("chat.message", {"msg": "hello"})
+        await client.publish("chat.message", {"msg": "hello"})
         await asyncio.sleep(0.1)
 
         assert len(received) == 1
@@ -270,11 +268,11 @@ class TestDecorators:
         task.cancel()
         await srv.stop()
 
-    async def test_event_decorator_default_name(self):
+    async def test_subscription_decorator_default_name(self):
         srv = RpcServer(host="127.0.0.1", port=0, ping_interval=300)
         received = []
 
-        @srv.event()  # uses function name "ping_event"
+        @srv.subscription()  # uses function name "ping_event"
         def ping_event(data, conn):
             received.append(data)
 
@@ -285,7 +283,7 @@ class TestDecorators:
         task = asyncio.create_task(client.connect())
         await client.wait_connected()
 
-        await client.emit("ping_event", {"ts": 123})
+        await client.publish("ping_event", {"ts": 123})
         await asyncio.sleep(0.1)
 
         assert received == [{"ts": 123}]
@@ -293,6 +291,84 @@ class TestDecorators:
         await client.disconnect()
         task.cancel()
         await srv.stop()
+
+
+class TestBatchRequest:
+    """Test batch RPC request support."""
+
+    async def test_batch_request_basic(self, server):
+        client = make_client(server.port)
+        task = asyncio.create_task(client.connect())
+        await client.wait_connected()
+
+        results = await client.batch_request([
+            ("echo", {"x": 1}),
+            ("add", {"a": 10, "b": 20}),
+            ("echo", {"x": 2}),
+        ])
+
+        assert len(results) == 3
+        assert results[0] == {"x": 1}
+        assert results[1] == {"sum": 30}
+        assert results[2] == {"x": 2}
+
+        await client.disconnect()
+        task.cancel()
+
+    async def test_batch_request_with_error(self, server):
+        """Batch with an error returns RpcError for that item."""
+        client = make_client(server.port)
+        task = asyncio.create_task(client.connect())
+        await client.wait_connected()
+
+        results = await client.batch_request([
+            ("echo", {"ok": True}),
+            ("fail", None),
+            ("add", {"a": 1, "b": 2}),
+        ])
+
+        assert len(results) == 3
+        assert results[0] == {"ok": True}
+        assert isinstance(results[1], RpcError)
+        assert results[1].code == -100
+        assert results[2] == {"sum": 3}
+
+        await client.disconnect()
+        task.cancel()
+
+    async def test_batch_request_empty(self, server):
+        client = make_client(server.port)
+        task = asyncio.create_task(client.connect())
+        await client.wait_connected()
+
+        results = await client.batch_request([])
+        assert results == []
+
+        await client.disconnect()
+        task.cancel()
+
+    async def test_batch_request_preserves_order(self, server):
+        """Results should be in request order, not response arrival order."""
+        # Register a method that has variable delay
+        async def slow_echo(params, conn):
+            import random
+            await asyncio.sleep(random.uniform(0.01, 0.05))
+            return params
+
+        server.register("slow_echo", slow_echo)
+
+        client = make_client(server.port)
+        task = asyncio.create_task(client.connect())
+        await client.wait_connected()
+
+        calls = [("slow_echo", {"i": i}) for i in range(10)]
+        results = await client.batch_request(calls)
+
+        for i, r in enumerate(results):
+            assert r == {"i": i}
+
+        await client.disconnect()
+        task.cancel()
 
 
 class TestMultipleWebClients:
@@ -309,9 +385,9 @@ class TestMultipleWebClients:
 
         received = {i: [] for i in range(3)}
         for i, c in enumerate(clients):
-            c.on("broadcast", lambda data, idx=i: received[idx].append(data))
+            c.subscribe("broadcast", lambda data, idx=i: received[idx].append(data))
 
-        await server.broadcast_event("broadcast", {"msg": "hello all"}, role="web")
+        await server.broadcast("broadcast", {"msg": "hello all"}, role="web")
         await asyncio.sleep(0.1)
 
         for i in range(3):

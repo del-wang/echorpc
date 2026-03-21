@@ -204,7 +204,7 @@
             placeholder="JSON data"
           />
         </div>
-        <button id="btnEmit" disabled>Emit to Server</button>
+        <button id="btnEmit" disabled>Publish to Server</button>
       </div>
 
       <!-- Log -->
@@ -288,11 +288,11 @@
         };
         rpc.onAuthFailed = () => log("err", "Auth failed");
 
-        rpc.on("server.heartbeat", (d) =>
-          log("evt", `[event] server.heartbeat: ${JSON.stringify(d)}`),
+        rpc.subscribe("server.heartbeat", (d) =>
+          log("evt", `[notification] server.heartbeat: ${JSON.stringify(d)}`),
         );
-        rpc.on("node.status", (d) =>
-          log("evt", `[event] node.status: ${JSON.stringify(d)}`),
+        rpc.subscribe("node.status", (d) =>
+          log("evt", `[notification] node.status: ${JSON.stringify(d)}`),
         );
 
         rpc.register("web.ping", () => ({ pong: true, from: "web" }));
@@ -311,7 +311,7 @@
         const params = parseJson($("rpcParams").value);
         log("out", `-> ${method}(${JSON.stringify(params)})`);
         try {
-          const r = await rpc.call(method, params);
+          const r = await rpc.request(method, params);
           log("in", `<- ${JSON.stringify(r)}`);
         } catch (e) {
           log("err", `Error: ${e.message}`);
@@ -321,7 +321,7 @@
       $("btnCallAdd").onclick = async () => {
         log("out", "-> add({a:3, b:7})");
         try {
-          const r = await rpc.call("add", { a: 3, b: 7 });
+          const r = await rpc.request("add", { a: 3, b: 7 });
           log("in", `<- ${JSON.stringify(r)}`);
         } catch (e) {
           log("err", `Error: ${e.message}`);
@@ -331,7 +331,7 @@
       $("btnCallTime").onclick = async () => {
         log("out", "-> server.time()");
         try {
-          const r = await rpc.call("server.time");
+          const r = await rpc.request("server.time");
           log("in", `<- ${JSON.stringify(r)}`);
         } catch (e) {
           log("err", `Error: ${e.message}`);
@@ -342,8 +342,8 @@
       $("btnEmit").onclick = () => {
         const event = $("evtName").value;
         const data = parseJson($("evtData").value);
-        rpc.emit(event, data);
-        log("out", `emit ${event}: ${JSON.stringify(data)}`);
+        rpc.publish(event, data);
+        log("out", `publish ${event}: ${JSON.stringify(data)}`);
       };
 
       $("btnClear").onclick = () => {

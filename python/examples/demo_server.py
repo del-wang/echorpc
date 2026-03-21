@@ -42,11 +42,11 @@ def handle_server_time(params, conn):
     return {"time": time.time(), "iso": time.strftime("%Y-%m-%dT%H:%M:%S")}
 
 
-# ── Event handling (decorator style) ──────────────────────────────────────
+# ── Notification handling (decorator style) ──────────────────────────────
 
-@server.event("web.message")
+@server.subscription("web.message")
 async def on_web_message(data, conn):
-    """Handle web messages — conn is the connection that emitted."""
+    """Handle web notifications — conn is the connection that published."""
     logger.info("web message from %s: %s", conn.meta.get("role"), data)
 
 
@@ -71,7 +71,7 @@ async def heartbeat_broadcast():
     """Broadcast server heartbeat every 5 seconds."""
     while True:
         await asyncio.sleep(5)
-        await server.broadcast_event("server.heartbeat", {
+        await server.broadcast("server.heartbeat", {
             "time": time.time(),
             "connections": len(server.get_connections()),
         })
@@ -80,7 +80,7 @@ async def heartbeat_broadcast():
 async def main():
     logger.info("starting demo server on ws://localhost:9100")
     logger.info("  - built-in methods: echo, add, server.time")
-    logger.info("  - broadcast event: server.heartbeat (every 5s)")
+    logger.info("  - broadcast notification: server.heartbeat (every 5s)")
     await server.start()
     await heartbeat_broadcast()
 

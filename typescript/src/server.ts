@@ -15,7 +15,7 @@ import { RpcConnection } from "./connection.js";
 
 /**
  * Server-side RPC handler — receives the calling connection as `conn`.
- * Use `conn` to call/emit back to the specific client.
+ * Use `conn` to request/publish back to the specific client.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ServerRpcHandler<T = any> = (
@@ -24,7 +24,7 @@ export type ServerRpcHandler<T = any> = (
 ) => any | Promise<any>;
 
 /**
- * Server-side event callback — receives the emitting connection as `conn`.
+ * Server-side notification callback — receives the publishing connection as `conn`.
  */
 export type ServerEventCallback<T = unknown> = (
   data: T,
@@ -63,7 +63,7 @@ export class RpcServer {
 
   private _connections = new Set<RpcConnection>();
   private _globalHandlers = new Map<string, ServerRpcHandler>();
-  private _globalEventListeners = new Map<string, ServerEventCallback[]>();
+  private _globalSubscribers = new Map<string, ServerEventCallback[]>();
   private _onConnectCbs: OnConnectCallback[] = [];
   private _onDisconnectCbs: OnDisconnectCallback[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -123,7 +123,7 @@ export class RpcServer {
     return { host: addr.address, port: addr.port };
   }
 
-  // ── Registration ─────────────────────────────────────────────────────
+  // ── RPC Registration ─────────────────────────────────────────────────
 
   /**
    * Register a global RPC method. The handler receives `(params, conn)` where
@@ -143,29 +143,33 @@ export class RpcServer {
     this._globalHandlers.delete(method);
   }
 
+  // ── Pub/Sub Registration ─────────────────────────────────────────────
+
   /**
-   * Listen for events emitted by clients. The callback receives `(data, conn)`
-   * where `conn` is the `RpcConnection` that emitted the event.
+   * Subscribe to notifications published by clients. The callback receives
+   * `(data, conn)` where `conn` is the `RpcConnection` that published.
    *
    * @example
-   * server.on("chat.message", (data, conn) => {
-   *   server.broadcastEventExcept("chat.message", data, conn);
+   * server.subscribe("chat.message", (data, conn) => {
+   *   server.broadcastExcept("chat.message", data, conn);
    * });
    */
-  on(event: string, callback: ServerEventCallback): void {
-    if (!this._globalEventListeners.has(event)) {
-      this._globalEventListeners.set(event, []);
+  subscribe(method: string, callback: ServerEventCallback): void {
+    if (!this._globalSubscribers.has(method)) {
+      this._globalSubscribers.set(method, []);
     }
-    this._globalEventListeners.get(event)!.push(callback);
+    this._globalSubscribers.get(method)!.push(callback);
   }
 
-  off(event: string, callback: ServerEventCallback): void {
-    const cbs = this._globalEventListeners.get(event);
+  unsubscribe(method: string, callback: ServerEventCallback): void {
+    const cbs = this._globalSubscribers.get(method);
     if (cbs) {
       const idx = cbs.indexOf(callback);
       if (idx !== -1) cbs.splice(idx, 1);
     }
   }
+
+  // ── Lifecycle hooks ──────────────────────────────────────────────────
 
   onConnect(cb: OnConnectCallback): void {
     this._onConnectCbs.push(cb);
@@ -184,21 +188,23 @@ export class RpcServer {
 
   // ── Broadcast ────────────────────────────────────────────────────────
 
-  broadcastEvent(event: string, data?: unknown, role?: string): void {
+  /** Publish a notification to all (or role-filtered) connections. */
+  broadcast(method: string, params?: unknown, role?: string): void {
     const targets =
       role !== undefined ? this.getConnections(role) : [...this._connections];
     for (const conn of targets) {
-      if (conn.isOpen) conn.emit(event, data);
+      if (conn.isOpen) conn.publish(method, params);
     }
   }
 
-  broadcastEventExcept(
-    event: string,
-    data?: unknown,
+  /** Publish a notification to all connections except *exclude*. */
+  broadcastExcept(
+    method: string,
+    params?: unknown,
     exclude?: RpcConnection,
   ): void {
     for (const conn of this._connections) {
-      if (conn !== exclude && conn.isOpen) conn.emit(event, data);
+      if (conn !== exclude && conn.isOpen) conn.publish(method, params);
     }
   }
 
@@ -214,10 +220,10 @@ export class RpcServer {
       conn.register(method, (params) => handler(params, conn));
     }
 
-    // Register global event listeners — wrap to inject conn
-    for (const [event, callbacks] of this._globalEventListeners) {
+    // Register global subscribers — wrap to inject conn
+    for (const [method, callbacks] of this._globalSubscribers) {
       for (const cb of callbacks) {
-        conn.on(event, (data) => cb(data, conn));
+        conn.subscribe(method, (data) => cb(data, conn));
       }
     }
 

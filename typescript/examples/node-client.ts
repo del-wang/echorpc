@@ -38,13 +38,13 @@ rpc.register("node.info", () => {
   };
 });
 
-// ── Listen for events ───────────────────────────────────────────────────────
+// ── Subscribe to notifications ──────────────────────────────────────────
 
-rpc.on("server.heartbeat", (data) => {
+rpc.subscribe("server.heartbeat", (data) => {
   console.log("[node] heartbeat:", data);
 });
 
-rpc.on("web.message", (data) => {
+rpc.subscribe("web.message", (data) => {
   console.log("[node] message from web:", data);
 });
 
@@ -56,15 +56,15 @@ rpc.onDisconnect = () => console.log("[node] disconnected");
 rpc.connect();
 
 rpc.waitConnected().then(async () => {
-  const echo = await rpc.call("echo", { msg: "hello from node" });
+  const echo = await rpc.request("echo", { msg: "hello from node" });
   console.log("[node] echo result:", echo);
 
-  const sum = await rpc.call("add", { a: 10, b: 20 });
+  const sum = await rpc.request("add", { a: 10, b: 20 });
   console.log("[node] add result:", sum);
 
-  const time = await rpc.call("server.time");
+  const time = await rpc.request("server.time");
   console.log("[node] server time:", time);
 
-  rpc.emit("node.status", { status: "ready", timestamp: Date.now() });
+  rpc.publish("node.status", { status: "ready", timestamp: Date.now() });
   console.log("[node] demo ready, listening for incoming calls...");
 });

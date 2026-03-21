@@ -1,6 +1,6 @@
 /**
  * Server-side WebSocket JSON-RPC 2.0 connection handler.
- * Wraps a single WebSocket and provides bidirectional RPC + events.
+ * Wraps a single WebSocket and provides bidirectional RPC + pub/sub.
  */
 
 import {
@@ -26,7 +26,7 @@ export class RpcConnection {
       timer: ReturnType<typeof setTimeout>;
     }
   >();
-  private _eventListeners = new Map<string, Set<EventCallback>>();
+  private _subscribers = new Map<string, Set<EventCallback>>();
   private _closed = false;
   private _pingTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -56,7 +56,11 @@ export class RpcConnection {
       this.ws.onmessage = (ev: { data: unknown }) => {
         try {
           const msg = JSON.parse(String(ev.data));
-          this._dispatch(msg);
+          if (Array.isArray(msg)) {
+            this._dispatchBatch(msg);
+          } else {
+            this._dispatch(msg);
+          }
         } catch {
           // ignore non-JSON
         }
@@ -80,7 +84,7 @@ export class RpcConnection {
     }
   }
 
-  // ── Public API ─────────────────────────────────────────────────────
+  // ── RPC methods ─────────────────────────────────────────────────────
 
   register(method: string, handler: RpcHandler): void {
     this._handlers.set(method, handler);
@@ -90,7 +94,7 @@ export class RpcConnection {
     this._handlers.delete(method);
   }
 
-  call<T = unknown>(
+  request<T = unknown>(
     method: string,
     params?: unknown,
     timeoutMs?: number,
@@ -115,18 +119,65 @@ export class RpcConnection {
     });
   }
 
-  emit(event: string, data?: unknown): void {
-    this._send({ jsonrpc: "2.0", method: `event:${event}`, params: data });
+  /**
+   * Send a batch of RPC requests. Returns results in request order.
+   * If any individual call returns an error, the corresponding element
+   * will be an RpcError instance.
+   */
+  batchRequest<T = unknown>(
+    calls: Array<[method: string, params?: unknown]>,
+    timeoutMs?: number,
+  ): Promise<T[]> {
+    if (!this.isOpen) {
+      return Promise.reject(
+        new RpcError(ErrorCode.NOT_CONNECTED, "not connected"),
+      );
+    }
+    if (calls.length === 0) return Promise.resolve([]);
+
+    const requests: Record<string, unknown>[] = [];
+    const promises: Promise<unknown>[] = [];
+
+    for (const [method, params] of calls) {
+      const id = nextId();
+      const p = new Promise<unknown>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this._pending.delete(id);
+          reject(new RpcError(ErrorCode.TIMEOUT, "batch timeout"));
+        }, timeoutMs ?? this.timeout);
+        this._pending.set(id, {
+          resolve,
+          reject,
+          timer,
+        });
+      });
+      // Wrap each promise so errors become values (like Promise.allSettled)
+      promises.push(p.catch((err) => err));
+      requests.push({ jsonrpc: "2.0", id, method, params });
+    }
+
+    // Send entire batch as a single JSON array
+    this._send(requests);
+    return Promise.all(promises) as Promise<T[]>;
   }
 
-  on(event: string, callback: EventCallback): void {
-    if (!this._eventListeners.has(event))
-      this._eventListeners.set(event, new Set());
-    this._eventListeners.get(event)!.add(callback);
+  // ── Pub/Sub (notifications) ──────────────────────────────────────────
+
+  /** Send a JSON-RPC notification (no response expected). */
+  publish(method: string, params?: unknown): void {
+    this._send({ jsonrpc: "2.0", method, params });
   }
 
-  off(event: string, callback: EventCallback): void {
-    this._eventListeners.get(event)?.delete(callback);
+  /** Subscribe to incoming notifications with the given method name. */
+  subscribe(method: string, callback: EventCallback): void {
+    if (!this._subscribers.has(method))
+      this._subscribers.set(method, new Set());
+    this._subscribers.get(method)!.add(callback);
+  }
+
+  /** Remove a notification subscription. */
+  unsubscribe(method: string, callback: EventCallback): void {
+    this._subscribers.get(method)?.delete(callback);
   }
 
   // ── Dispatch ───────────────────────────────────────────────────────
@@ -145,7 +196,7 @@ export class RpcConnection {
 
     const id = msg.id as RpcId | undefined;
 
-    // Response to our pending call
+    // Response to our pending request
     if (id !== undefined && this._pending.has(id)) {
       const { resolve, reject, timer } = this._pending.get(id)!;
       clearTimeout(timer);
@@ -158,14 +209,14 @@ export class RpcConnection {
       return;
     }
 
-    // Event
-    if (typeof method === "string" && method.startsWith("event:")) {
-      const evName = method.slice(6);
-      this._eventListeners.get(evName)?.forEach((fn) => fn(msg.params));
+    // Notification (has method, no id) — fire subscribers
+    if (typeof method === "string" && id === undefined) {
+      const subs = this._subscribers.get(method);
+      if (subs) for (const fn of subs) fn(msg.params);
       return;
     }
 
-    // Incoming RPC call
+    // Incoming RPC call (has method + id)
     if (method && id !== undefined) {
       const handler = this._handlers.get(method);
       if (!handler) {
@@ -191,11 +242,140 @@ export class RpcConnection {
           this._send({
             jsonrpc: "2.0",
             id,
-            error: { code: rpcErr.code, message: rpcErr.message },
+            error: {
+              code: rpcErr.code,
+              message: rpcErr.message,
+              ...(rpcErr.data !== undefined ? { data: rpcErr.data } : {}),
+            },
           });
         }
       })();
     }
+  }
+
+  /**
+   * Handle an incoming JSON-RPC batch (array of messages).
+   * Per the spec:
+   * - Empty array → single Invalid Request error
+   * - Non-object elements → Invalid Request error per element
+   * - Notifications produce no response
+   * - If all are notifications, nothing is returned
+   */
+  private async _dispatchBatch(batch: unknown[]): Promise<void> {
+    if (batch.length === 0) {
+      this._send({
+        jsonrpc: "2.0",
+        id: null,
+        error: {
+          code: ErrorCode.INVALID_REQUEST,
+          message: "Invalid Request",
+        },
+      });
+      return;
+    }
+
+    const responses = await Promise.all(
+      batch.map((item) => this._processBatchItem(item)),
+    );
+
+    // Filter out null (from notifications and responses to pending calls)
+    const filtered = responses.filter(
+      (r): r is Record<string, unknown> => r !== null,
+    );
+
+    if (filtered.length > 0) {
+      this._send(filtered);
+    }
+  }
+
+  private async _processBatchItem(
+    item: unknown,
+  ): Promise<Record<string, unknown> | null> {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      return {
+        jsonrpc: "2.0",
+        id: null,
+        error: {
+          code: ErrorCode.INVALID_REQUEST,
+          message: "Invalid Request",
+        },
+      };
+    }
+
+    const msg = item as Record<string, unknown>;
+    const method = msg.method as string | undefined;
+    const id = msg.id as RpcId | undefined;
+
+    // Heartbeat
+    if (method === "ping") {
+      return { jsonrpc: "2.0", method: "pong" };
+    }
+    if (method === "pong") {
+      return null;
+    }
+
+    // Response to our pending request
+    if (id !== undefined && this._pending.has(id)) {
+      const { resolve, reject, timer } = this._pending.get(id)!;
+      clearTimeout(timer);
+      this._pending.delete(id);
+      const error = msg.error as
+        | { code: number; message: string; data?: unknown }
+        | undefined;
+      if (error) reject(new RpcError(error.code, error.message, error.data));
+      else resolve(msg.result);
+      return null;
+    }
+
+    // Notification (has method, no id) — fire subscribers
+    if (typeof method === "string" && id === undefined) {
+      const subs = this._subscribers.get(method);
+      if (subs) for (const fn of subs) fn(msg.params);
+      return null;
+    }
+
+    // RPC call (has method + id) — execute and return response
+    if (method && id !== undefined) {
+      const handler = this._handlers.get(method);
+      if (!handler) {
+        return {
+          jsonrpc: "2.0",
+          id,
+          error: {
+            code: ErrorCode.METHOD_NOT_FOUND,
+            message: `method not found: ${method}`,
+          },
+        };
+      }
+      try {
+        const result = await handler(msg.params);
+        return { jsonrpc: "2.0", id, result };
+      } catch (err: unknown) {
+        const rpcErr =
+          err instanceof RpcError
+            ? err
+            : new RpcError(ErrorCode.INTERNAL_ERROR, String(err));
+        return {
+          jsonrpc: "2.0",
+          id,
+          error: {
+            code: rpcErr.code,
+            message: rpcErr.message,
+            ...(rpcErr.data !== undefined ? { data: rpcErr.data } : {}),
+          },
+        };
+      }
+    }
+
+    // Invalid request (no method)
+    return {
+      jsonrpc: "2.0",
+      id: id ?? null,
+      error: {
+        code: ErrorCode.INVALID_REQUEST,
+        message: "Invalid Request",
+      },
+    };
   }
 
   // ── Heartbeat ──────────────────────────────────────────────────────
@@ -227,7 +407,7 @@ export class RpcConnection {
     this._pending.clear();
   }
 
-  private _send(msg: Record<string, unknown>): void {
+  private _send(msg: Record<string, unknown> | Record<string, unknown>[]): void {
     if (this.ws.readyState === WS_OPEN) {
       this.ws.send(JSON.stringify(msg));
     }

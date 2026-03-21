@@ -24,7 +24,7 @@ class RpcClient:
         client = RpcClient("ws://localhost:9100", token="secret", role="node")
         client.register("echo", lambda params: params)
         await client.connect()
-        result = await client.call("server.method", {"key": "value"})
+        result = await client.request("server.method", {"key": "value"})
     """
 
     def __init__(
@@ -50,7 +50,7 @@ class RpcClient:
 
         self._conn: RpcConnection | None = None
         self._handlers: dict[str, Handler] = {}
-        self._event_listeners: dict[str, list[EventCallback]] = {}
+        self._subscribers: dict[str, list[EventCallback]] = {}
         self._reconnect_delay = INITIAL_RECONNECT_DELAY
         self._closed = False
         self._connected_event = asyncio.Event()
@@ -65,41 +65,61 @@ class RpcClient:
     async def wait_connected(self, timeout: float = 10.0) -> None:
         await asyncio.wait_for(self._connected_event.wait(), timeout=timeout)
 
-    # ── RPC ─────────────────────────────────────────────────────
+    # ── RPC ──────────────────────────────────────────────────────────────
 
     def register(self, method: str, handler: Handler) -> None:
         self._handlers[method] = handler
         if self._conn:
             self._conn.register(method, handler)
-            
+
     def unregister(self, method: str) -> None:
         self._handlers.pop(method, None)
         if self._conn:
             self._conn.unregister(method)
-            
-    async def call(self, method: str, params: Any = None, *, timeout: float | None = None) -> Any:
+
+    async def request(self, method: str, params: Any = None, *, timeout: float | None = None) -> Any:
+        """Send a JSON-RPC request and wait for the response."""
         if not self._conn or not self._conn.is_open:
             raise RpcError(ErrorCode.NOT_CONNECTED, "not connected")
-        return await self._conn.call(method, params, timeout=timeout)
+        return await self._conn.request(method, params, timeout=timeout)
 
-    # ── RPC ──────────────────────────────────────────────────────────────
+    async def batch_request(
+        self,
+        calls: list[tuple[str, Any]],
+        *,
+        timeout: float | None = None,
+    ) -> list[Any]:
+        """Send a batch of RPC requests. Returns results in request order.
 
-    def on(self, event: str, callback: EventCallback) -> None:
-        self._event_listeners.setdefault(event, []).append(callback)
+        Each item in *calls* is a ``(method, params)`` tuple.
+        If any individual call returns an error, the corresponding element
+        in the result list will be an :class:`RpcError` instance.
+        """
+        if not self._conn or not self._conn.is_open:
+            raise RpcError(ErrorCode.NOT_CONNECTED, "not connected")
+        return await self._conn.batch_request(calls, timeout=timeout)
+
+    # ── Pub/Sub ──────────────────────────────────────────────────────────
+
+    def subscribe(self, method: str, callback: EventCallback) -> None:
+        """Subscribe to incoming notifications with the given method name."""
+        self._subscribers.setdefault(method, []).append(callback)
         if self._conn:
-            self._conn.on(event, callback)
+            self._conn.subscribe(method, callback)
 
-    def off(self, event: str, callback: EventCallback) -> None:
-        cbs = self._event_listeners.get(event)
+    def unsubscribe(self, method: str, callback: EventCallback) -> None:
+        """Remove a notification subscription."""
+        cbs = self._subscribers.get(method)
         if cbs and callback in cbs:
             cbs.remove(callback)
         if self._conn:
-            self._conn.off(event, callback)
+            self._conn.unsubscribe(method, callback)
 
-    async def emit(self, event: str, data: Any = None) -> None:
+    async def publish(self, method: str, params: Any = None) -> None:
+        """Send a JSON-RPC notification (no response expected)."""
         if not self._conn or not self._conn.is_open:
             raise RpcError(ErrorCode.NOT_CONNECTED, "not connected")
-        await self._conn.emit(event, data)
+        await self._conn.publish(method, params)
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
@@ -112,22 +132,22 @@ class RpcClient:
                 self._conn = RpcConnection(ws, timeout=self.timeout, ping_interval=self.ping_interval)
                 self._reconnect_delay = INITIAL_RECONNECT_DELAY
 
-                # Apply registered handlers and listeners
+                # Apply registered handlers and subscribers
                 for method, handler in self._handlers.items():
                     self._conn.register(method, handler)
-                for event, cbs in self._event_listeners.items():
+                for method, cbs in self._subscribers.items():
                     for cb in cbs:
-                        self._conn.on(event, cb)
+                        self._conn.subscribe(method, cb)
 
                 # Authenticate
                 if self.token:
                     auth_params = {"token": self.token, "role": self.role}
                     if self.client_id:
                         auth_params["client_id"] = self.client_id
-                    # We need to start serve() in background to handle auth response
+                    # Start serve() in background to handle auth response
                     serve_task = asyncio.create_task(self._conn.serve())
                     try:
-                        await self._conn.call("auth.login", auth_params)
+                        await self._conn.request("auth.login", auth_params)
                     except Exception as e:
                         logger.error("auth failed: %s", e)
                         serve_task.cancel()
