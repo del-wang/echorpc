@@ -11,21 +11,25 @@ import {
   RpcConnection,
   RpcError,
   ErrorCode,
+  WsServer,
+  WsClient,
 } from "../src/index.js";
 
 const WS = WebSocket;
 
 let server: RpcServer;
+let wsServer: WsServer;
 let serverPort: number;
 
 function createClient(role = "web"): RpcClient {
-  return new RpcClient(`ws://127.0.0.1:${serverPort}`, {
+  const transport = new WsClient(`ws://127.0.0.1:${serverPort}`, {
     token: "test-token",
     role,
     autoReconnect: false,
     pingInterval: 300_000,
     WebSocket: WS,
   });
+  return new RpcClient(transport);
 }
 
 // ── Basic RPC ──────────────────────────────────────────────────────────
@@ -34,7 +38,8 @@ describe("TS Server: Basic RPC", () => {
   let client: RpcClient;
 
   beforeAll(async () => {
-    server = new RpcServer({ port: 0 });
+    wsServer = new WsServer({ port: 0 });
+    server = new RpcServer(wsServer);
     server.register("echo", (conn, params) => params);
     server.register("add", (conn, params: { a: number; b: number }) => ({
       sum: params.a + params.b,
@@ -144,13 +149,12 @@ describe("TS Server: Handler conn", () => {
   let client: RpcClient;
 
   beforeAll(async () => {
-    server = new RpcServer({ port: 0 });
-    // Handler uses conn to read caller's role
+    wsServer = new WsServer({ port: 0 });
+    server = new RpcServer(wsServer);
     server.register("whoami", (conn, params) => ({
       role: conn.meta.role,
       authenticated: conn.meta.authenticated,
     }));
-    // Handler uses conn to request back into the client
     server.register("ask.client", async (conn, params) => {
       const answer = await conn.request<string>("client.answer");
       return { answer };
@@ -194,7 +198,8 @@ describe("TS Server: Bidirectional RPC", () => {
   let client: RpcClient;
 
   beforeAll(async () => {
-    server = new RpcServer({ port: 0 });
+    wsServer = new WsServer({ port: 0 });
+    server = new RpcServer(wsServer);
     server.register("echo", (conn, params) => params);
     await server.start();
     serverPort = server.address!.port;
@@ -220,7 +225,6 @@ describe("TS Server: Bidirectional RPC", () => {
   });
 
   it("should request client with params and get result", async () => {
-    // Small settle so previous test's server-side connection is cleaned up
     await new Promise((r) => setTimeout(r, 50));
     client = createClient("node");
     client.register(
@@ -243,7 +247,8 @@ describe("TS Server: Pub/Sub", () => {
   let client: RpcClient;
 
   beforeAll(async () => {
-    server = new RpcServer({ port: 0 });
+    wsServer = new WsServer({ port: 0 });
+    server = new RpcServer(wsServer);
     await server.start();
     serverPort = server.address!.port;
   });
@@ -268,8 +273,8 @@ describe("TS Server: Pub/Sub", () => {
   });
 
   it("server should receive notification published by client via server.subscribe()", async () => {
-    // Use a fresh server so the subscriber is isolated
-    const freshServer = new RpcServer({ port: 0 });
+    const freshWsServer = new WsServer({ port: 0 });
+    const freshServer = new RpcServer(freshWsServer);
     const received: Array<{ data: unknown; role: unknown }> = [];
     freshServer.subscribe("client.hello", (conn, data) => {
       received.push({ data, role: conn.meta.role });
@@ -277,13 +282,14 @@ describe("TS Server: Pub/Sub", () => {
     await freshServer.start();
     const port = freshServer.address!.port;
 
-    const c = new RpcClient(`ws://127.0.0.1:${port}`, {
+    const transport = new WsClient(`ws://127.0.0.1:${port}`, {
       token: "t",
       role: "web",
       autoReconnect: false,
       pingInterval: 300_000,
       WebSocket: WS,
     });
+    const c = new RpcClient(transport);
     c.connect();
     await c.waitConnected(5000);
 
@@ -325,11 +331,9 @@ describe("TS Server: Pub/Sub", () => {
     await client2.waitConnected(5000);
 
     const conns = server.getConnections("web");
-    // Exclude the first connection
     server.broadcastExcept("selective", { msg: "hi" }, conns[0]);
     await new Promise((r) => setTimeout(r, 200));
 
-    // One should have received it, the other should not
     const totalReceived = events1.length + events2.length;
     expect(totalReceived).toBe(1);
 
@@ -344,7 +348,8 @@ describe("TS Server: Batch requests", () => {
   let client: RpcClient;
 
   beforeAll(async () => {
-    server = new RpcServer({ port: 0 });
+    wsServer = new WsServer({ port: 0 });
+    server = new RpcServer(wsServer);
     server.register("echo", (conn, params) => params);
     server.register("add", (conn, params: { a: number; b: number }) => ({
       sum: params.a + params.b,
@@ -434,7 +439,8 @@ describe("TS Server: Batch requests", () => {
 
 describe("TS Server: Connection management", () => {
   beforeAll(async () => {
-    server = new RpcServer({ port: 0 });
+    wsServer = new WsServer({ port: 0 });
+    server = new RpcServer(wsServer);
     await server.start();
     serverPort = server.address!.port;
   });
@@ -458,43 +464,42 @@ describe("TS Server: Connection management", () => {
     client.connect();
     await client.waitConnected(5000);
 
-    // After auth, role should be set
     expect(connectCount.length).toBeGreaterThanOrEqual(1);
     expect(server.getConnections().length).toBeGreaterThanOrEqual(1);
 
     client.disconnect();
     await new Promise((r) => setTimeout(r, 200));
 
-    // onDisconnect fires after close, role is already set by auth
     expect(disconnectCount.length).toBeGreaterThanOrEqual(1);
     expect(disconnectCount.some((c) => c.meta.role === "node")).toBe(true);
   });
 
   it("getConnections should filter by role", async () => {
-    // Use a fresh server to avoid leftover connections from other tests
-    const freshServer = new RpcServer({ port: 0 });
+    const freshWsServer = new WsServer({ port: 0 });
+    const freshServer = new RpcServer(freshWsServer);
     await freshServer.start();
     const port = freshServer.address!.port;
 
-    const c1 = new RpcClient(`ws://127.0.0.1:${port}`, {
+    const t1 = new WsClient(`ws://127.0.0.1:${port}`, {
       token: "t",
       role: "web",
       autoReconnect: false,
       pingInterval: 300_000,
       WebSocket: WS,
     });
-    const c2 = new RpcClient(`ws://127.0.0.1:${port}`, {
+    const t2 = new WsClient(`ws://127.0.0.1:${port}`, {
       token: "t",
       role: "node",
       autoReconnect: false,
       pingInterval: 300_000,
       WebSocket: WS,
     });
+    const c1 = new RpcClient(t1);
+    const c2 = new RpcClient(t2);
     c1.connect();
     await c1.waitConnected(5000);
     c2.connect();
     await c2.waitConnected(5000);
-    // Small settle for server-side meta propagation
     await new Promise((r) => setTimeout(r, 50));
 
     expect(freshServer.getConnections("web").length).toBe(1);
@@ -542,7 +547,7 @@ describe("TS Server: Custom auth handler", () => {
   let authPort: number;
 
   beforeAll(async () => {
-    authServer = new RpcServer({
+    const authWsServer = new WsServer({
       port: 0,
       authHandler: (params) => {
         if (params.token !== "valid-token") {
@@ -551,6 +556,7 @@ describe("TS Server: Custom auth handler", () => {
         return { ok: true };
       },
     });
+    authServer = new RpcServer(authWsServer);
     authServer.register("echo", (conn, p) => p);
     await authServer.start();
     authPort = authServer.address!.port;
@@ -561,12 +567,13 @@ describe("TS Server: Custom auth handler", () => {
   });
 
   it("should authenticate with valid token", async () => {
-    const client = new RpcClient(`ws://127.0.0.1:${authPort}`, {
+    const transport = new WsClient(`ws://127.0.0.1:${authPort}`, {
       token: "valid-token",
       autoReconnect: false,
       pingInterval: 300_000,
       WebSocket: WS,
     });
+    const client = new RpcClient(transport);
     client.connect();
     await client.waitConnected(5000);
     expect(client.connected).toBe(true);
@@ -577,12 +584,13 @@ describe("TS Server: Custom auth handler", () => {
 
   it("should reject invalid token (HTTP 401, no WS connection)", async () => {
     let authFailed = false;
-    const client = new RpcClient(`ws://127.0.0.1:${authPort}`, {
+    const transport = new WsClient(`ws://127.0.0.1:${authPort}`, {
       token: "wrong-token",
       autoReconnect: false,
       pingInterval: 300_000,
       WebSocket: WS,
     });
+    const client = new RpcClient(transport);
     client.onAuthFailed = () => {
       authFailed = true;
     };
@@ -590,23 +598,24 @@ describe("TS Server: Custom auth handler", () => {
     await new Promise((r) => setTimeout(r, 500));
     expect(authFailed).toBe(true);
     expect(client.connected).toBe(false);
-    // Server should have zero connections from this client
     expect(authServer.getConnections().length).toBe(0);
     client.disconnect();
   });
 
   it("should accept all connections when no auth handler", async () => {
-    const noAuthServer = new RpcServer({ port: 0 });
+    const noAuthWsServer = new WsServer({ port: 0 });
+    const noAuthServer = new RpcServer(noAuthWsServer);
     noAuthServer.register("echo", (conn, p) => p);
     await noAuthServer.start();
     const port = noAuthServer.address!.port;
 
-    const client = new RpcClient(`ws://127.0.0.1:${port}`, {
+    const transport = new WsClient(`ws://127.0.0.1:${port}`, {
       token: "anything",
       autoReconnect: false,
       pingInterval: 300_000,
       WebSocket: WS,
     });
+    const client = new RpcClient(transport);
     client.connect();
     await client.waitConnected(5000);
     expect(client.connected).toBe(true);
@@ -618,13 +627,13 @@ describe("TS Server: Custom auth handler", () => {
   });
 
   it("unauthenticated client cannot call methods", async () => {
-    // With auth handler, wrong token → no WS, no RPC possible
-    const client = new RpcClient(`ws://127.0.0.1:${authPort}`, {
+    const transport = new WsClient(`ws://127.0.0.1:${authPort}`, {
       token: "wrong-token",
       autoReconnect: false,
       pingInterval: 300_000,
       WebSocket: WS,
     });
+    const client = new RpcClient(transport);
     client.connect();
     await new Promise((r) => setTimeout(r, 500));
     expect(client.connected).toBe(false);

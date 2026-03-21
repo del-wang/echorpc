@@ -1,0 +1,205 @@
+/**
+ * WsClient — WebSocket client transport.
+ * Implements ITransportClient with auto-reconnect, auth, and heartbeat.
+ */
+
+import {
+  type IWebSocket,
+  type WebSocketConstructor,
+  RpcError,
+  ErrorCode,
+  resolveWebSocket,
+} from "../core.js";
+import type { ITransportClient } from "../transport.js";
+
+const WS_OPEN = 1;
+
+export interface WsClientOptions {
+  /** Auth token sent as URL query param during WebSocket upgrade. */
+  token?: string;
+  /** Client role sent as URL query param (default: "web"). */
+  role?: string;
+  /** Arbitrary client ID. */
+  clientId?: string;
+  /** Heartbeat interval in ms (default: 30000). */
+  pingInterval?: number;
+  /** Max reconnect delay in ms (default: 5000). */
+  maxReconnectDelay?: number;
+  /** Enable auto-reconnect (default: true). */
+  autoReconnect?: boolean;
+  /** WebSocket constructor (browser: omit; Node.js: pass `ws`). */
+  WebSocket?: WebSocketConstructor;
+}
+
+export class WsClient implements ITransportClient {
+  onOpen: (() => void) | null = null;
+  onClose: (() => void) | null = null;
+  onMessage: ((raw: string) => void) | null = null;
+  onAuthFailed: (() => void) | null = null;
+
+  private ws: IWebSocket | null = null;
+  private _connected = false;
+  private reconnectAttempt = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private pongTimer: ReturnType<typeof setTimeout> | null = null;
+  private intentionalClose = false;
+
+  private readonly token: string;
+  private readonly role: string;
+  private readonly clientId: string;
+  private readonly pingInterval: number;
+  private readonly maxReconnectDelay: number;
+  private readonly autoReconnect: boolean;
+  private readonly WS: WebSocketConstructor | undefined;
+
+  constructor(
+    private readonly url: string,
+    opts: WsClientOptions = {},
+  ) {
+    this.token = opts.token ?? "";
+    this.role = opts.role ?? "web";
+    this.clientId = opts.clientId ?? "";
+    this.pingInterval = opts.pingInterval ?? 30_000;
+    this.maxReconnectDelay = opts.maxReconnectDelay ?? 5_000;
+    this.autoReconnect = opts.autoReconnect ?? true;
+    this.WS = opts.WebSocket;
+  }
+
+  get connected(): boolean {
+    return this._connected;
+  }
+
+  connect(): void {
+    this.intentionalClose = false;
+    this._doConnect();
+  }
+
+  disconnect(): void {
+    this.intentionalClose = true;
+    this._cleanup();
+    this.ws?.close();
+    this.ws = null;
+  }
+
+  send(raw: string): void {
+    if (this.ws?.readyState === WS_OPEN) {
+      this.ws.send(raw);
+    }
+  }
+
+  waitConnected(timeoutMs = 10_000): Promise<void> {
+    if (this._connected) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new RpcError(ErrorCode.TIMEOUT, "connection timeout"));
+      }, timeoutMs);
+      const origOnOpen = this.onOpen;
+      this.onOpen = () => {
+        clearTimeout(timer);
+        this.onOpen = origOnOpen;
+        origOnOpen?.();
+        resolve();
+      };
+    });
+  }
+
+  // ── Internal ─────────────────────────────────────────────────────────
+
+  private _buildUrl(): string {
+    const url = new URL(this.url);
+    if (this.token) url.searchParams.set("token", this.token);
+    if (this.role) url.searchParams.set("role", this.role);
+    if (this.clientId) url.searchParams.set("client_id", this.clientId);
+    return url.toString();
+  }
+
+  private _doConnect(): void {
+    const WS = resolveWebSocket(this.WS);
+    try {
+      this.ws = new WS(this._buildUrl());
+    } catch {
+      this._scheduleReconnect();
+      return;
+    }
+
+    this.ws.onopen = () => this._onOpen();
+    this.ws.onclose = () => this._onClose();
+    this.ws.onerror = () => {};
+    this.ws.onmessage = (e: { data: unknown }) => {
+      this.onMessage?.(String(e.data));
+    };
+  }
+
+  private _onOpen(): void {
+    this._connected = true;
+    this.reconnectAttempt = 0;
+    this._startPing();
+    this.onOpen?.();
+  }
+
+  private _onClose(): void {
+    const wasConnected = this._connected;
+    this._connected = false;
+    this._cleanup();
+
+    // Auth failure: close before open when token is set
+    if (!wasConnected && this.token) {
+      this.onAuthFailed?.();
+      return;
+    }
+
+    if (wasConnected) this.onClose?.();
+    if (!this.intentionalClose && this.autoReconnect) {
+      this._scheduleReconnect();
+    }
+  }
+
+  private _startPing(): void {
+    this._stopPing();
+    this.pingTimer = setInterval(() => {
+      if (this.ws?.readyState === WS_OPEN) {
+        this.ws.send(JSON.stringify({ jsonrpc: "2.0", method: "ping" }));
+      }
+      this.pongTimer = setTimeout(() => {
+        this.ws?.close();
+      }, 5_000);
+    }, this.pingInterval);
+  }
+
+  private _stopPing(): void {
+    if (this.pingTimer) clearInterval(this.pingTimer);
+    if (this.pongTimer) clearTimeout(this.pongTimer);
+    this.pingTimer = null;
+    this.pongTimer = null;
+  }
+
+  /** Clear pong timeout (called when pong is received via the router). */
+  refreshPong(): void {
+    if (this.pongTimer) {
+      clearTimeout(this.pongTimer);
+      this.pongTimer = null;
+    }
+  }
+
+  private _scheduleReconnect(): void {
+    if (this.reconnectTimer) return;
+    this.reconnectAttempt++;
+    const delay = Math.min(
+      100 * Math.pow(2, this.reconnectAttempt),
+      this.maxReconnectDelay,
+    );
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this._doConnect();
+    }, delay);
+  }
+
+  private _cleanup(): void {
+    this._stopPing();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+}

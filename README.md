@@ -197,19 +197,6 @@ const results = await rpc.batchRequest([
 | -32002 | Timeout | Request timed out |
 | -32003 | Auth failed | Authentication failed |
 
-## Project Structure
-
-```
-python/
-  viberpc/        # server, client, connection, core
-  examples/       # demo_server.py
-  tests/          # pytest
-
-typescript/
-  src/            # server, client, connection, core
-  examples/       # node-server, node-client, web demo
-  tests/          # vitest
-```
 
 ## Development
 
@@ -218,11 +205,7 @@ typescript/
 cd python && python -m pytest tests/ -v
 
 # TypeScript tests
-cd typescript && npx vitest run
-
-# Demo (start Python server, then connect TS clients)
-cd python && python examples/demo_server.py
-cd typescript && npx tsx examples/node-client.ts
+cd typescript && npm run vitest run
 ```
 
 ## License

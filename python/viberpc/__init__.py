@@ -1,17 +1,27 @@
-"""viberpc - Production-grade WebSocket JSON-RPC 2.0 for Python."""
+"""viberpc — Production-grade JSON-RPC 2.0 with pluggable transports."""
 
 from .core import RpcError, ErrorCode, DEFAULT_TIMEOUT
+from .router import MessageRouter
 from .connection import RpcConnection
 from .server import RpcServer, ServerHandler, ServerEventCallback
 from .client import RpcClient
+from .ws import WsConnection, WsClient, WsServer
+from .http import HttpConnection, HttpClient, HttpServer
 
 __all__ = [
     "RpcError",
     "ErrorCode",
+    "DEFAULT_TIMEOUT",
+    "MessageRouter",
     "RpcConnection",
     "RpcServer",
     "RpcClient",
     "ServerHandler",
     "ServerEventCallback",
-    "DEFAULT_TIMEOUT",
+    "WsConnection",
+    "WsClient",
+    "WsServer",
+    "HttpConnection",
+    "HttpClient",
+    "HttpServer",
 ]
