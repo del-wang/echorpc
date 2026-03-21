@@ -52,17 +52,13 @@ export class RpcClient {
 
   // ── Lifecycle ────────────────────────────────────────────────────────
 
-  connect(): void {
-    this.transport.connect();
+  connect(timeoutMs?: number): Promise<void> {
+    return this.transport.connect(timeoutMs);
   }
 
   disconnect(): void {
     this.transport.disconnect();
     this.router.close();
-  }
-
-  waitConnected(timeoutMs?: number): Promise<void> {
-    return this.transport.waitConnected(timeoutMs);
   }
 
   // ── RPC methods (delegate to router) ────────────────────────────────

@@ -43,13 +43,10 @@ class RpcClient:
     def connected(self) -> bool:
         return self.transport.connected
 
-    async def wait_connected(self, timeout: float = 10.0) -> None:
-        await self.transport.wait_connected(timeout=timeout)
-
     # ── Lifecycle ────────────────────────────────────────────────────────
 
-    async def connect(self) -> None:
-        await self.transport.connect()
+    async def connect(self, timeout: float = 10.0) -> None:
+        await self.transport.connect(timeout=timeout)
 
     async def disconnect(self) -> None:
         await self.transport.disconnect()

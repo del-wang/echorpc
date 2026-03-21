@@ -57,40 +57,35 @@ export class HttpClient implements ITransportClient {
     return this._connected;
   }
 
-  connect(): void {
-    this._doConnect();
+  async connect(timeoutMs = 10_000): Promise<void> {
+    const result = await Promise.race([
+      this._doConnect(),
+      new Promise<"timeout">((resolve) =>
+        setTimeout(() => resolve("timeout"), timeoutMs),
+      ),
+    ]);
+    if (result === "timeout" && !this._connected) {
+      this._stopCallbackServer();
+      throw new RpcError(ErrorCode.TIMEOUT, "connection timeout");
+    }
   }
 
   disconnect(): void {
     this._doDisconnect();
   }
 
-  send(raw: string): void {
+  async send(raw: string): Promise<void> {
     if (!this._connected || !this._connectionId) return;
     const url = `${this.serverUrl}/rpc?connection_id=${this._connectionId}`;
-    fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: raw,
-    }).catch(() => {
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: raw,
+      });
+    } catch {
       this._markDisconnected();
-    });
-  }
-
-  waitConnected(timeoutMs = 10_000): Promise<void> {
-    if (this._connected) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new RpcError(ErrorCode.TIMEOUT, "connection timeout"));
-      }, timeoutMs);
-      const origOnOpen = this.onOpen;
-      this.onOpen = () => {
-        clearTimeout(timer);
-        this.onOpen = origOnOpen;
-        origOnOpen?.();
-        resolve();
-      };
-    });
+    }
   }
 
   // ── Internal ─────────────────────────────────────────────────────────

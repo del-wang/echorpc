@@ -70,9 +70,22 @@ export class WsClient implements ITransportClient {
     return this._connected;
   }
 
-  connect(): void {
+  private _connectResolve: ((err?: Error) => void) | null = null;
+
+  connect(timeoutMs = 10_000): Promise<void> {
     this.intentionalClose = false;
-    this._doConnect();
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this._connectResolve = null;
+        reject(new RpcError(ErrorCode.TIMEOUT, "connection timeout"));
+      }, timeoutMs);
+      this._connectResolve = () => {
+        clearTimeout(timer);
+        this._connectResolve = null;
+        resolve();
+      };
+      this._doConnect();
+    });
   }
 
   disconnect(): void {
@@ -86,22 +99,6 @@ export class WsClient implements ITransportClient {
     if (this.ws?.readyState === WS_OPEN) {
       this.ws.send(raw);
     }
-  }
-
-  waitConnected(timeoutMs = 10_000): Promise<void> {
-    if (this._connected) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new RpcError(ErrorCode.TIMEOUT, "connection timeout"));
-      }, timeoutMs);
-      const origOnOpen = this.onOpen;
-      this.onOpen = () => {
-        clearTimeout(timer);
-        this.onOpen = origOnOpen;
-        origOnOpen?.();
-        resolve();
-      };
-    });
   }
 
   // ── Internal ─────────────────────────────────────────────────────────
@@ -135,6 +132,7 @@ export class WsClient implements ITransportClient {
     this._connected = true;
     this.reconnectAttempt = 0;
     this._startPing();
+    this._connectResolve?.();
     this.onOpen?.();
   }
 
@@ -145,6 +143,7 @@ export class WsClient implements ITransportClient {
 
     // Auth failure: close before open when token is set
     if (!wasConnected && this.token) {
+      this._connectResolve?.();
       this.onAuthFailed?.();
       return;
     }
@@ -152,6 +151,8 @@ export class WsClient implements ITransportClient {
     if (wasConnected) this.onClose?.();
     if (!this.intentionalClose && this.autoReconnect) {
       this._scheduleReconnect();
+    } else {
+      this._connectResolve?.();
     }
   }
 

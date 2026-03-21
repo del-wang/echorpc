@@ -54,23 +54,20 @@ describe("HTTP Transport: Basic RPC", () => {
 
   it("should connect via HTTP", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     expect(client.connected).toBe(true);
   });
 
   it("should request echo", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     const result = await client.request("echo", { msg: "hello" });
     expect(result).toEqual({ msg: "hello" });
   });
 
   it("should request add", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     const result = await client.request<{ sum: number }>("add", {
       a: 10,
       b: 20,
@@ -80,8 +77,7 @@ describe("HTTP Transport: Basic RPC", () => {
 
   it("should handle RpcError from handler", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     try {
       await client.request("throws");
       expect.unreachable("should have thrown");
@@ -93,8 +89,7 @@ describe("HTTP Transport: Basic RPC", () => {
 
   it("should handle method not found", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     try {
       await client.request("nonexistent");
       expect.unreachable("should have thrown");
@@ -138,8 +133,7 @@ describe("HTTP Transport: Auth", () => {
       callbackHost: "127.0.0.1",
     });
     const client = new RpcClient(transport);
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     expect(client.connected).toBe(true);
     const result = await client.request("echo", "ok");
     expect(result).toBe("ok");
@@ -156,8 +150,7 @@ describe("HTTP Transport: Auth", () => {
     client.onAuthFailed = () => {
       authFailed = true;
     };
-    client.connect();
-    await new Promise((r) => setTimeout(r, 500));
+    await client.connect();
     expect(authFailed).toBe(true);
     expect(client.connected).toBe(false);
     client.disconnect();
@@ -191,8 +184,7 @@ describe("HTTP Transport: Bidirectional RPC", () => {
     });
     const client = new RpcClient(transport);
     client.register("client.ping", () => "pong");
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
 
     // Wait for server to register connection
     await new Promise((r) => setTimeout(r, 100));

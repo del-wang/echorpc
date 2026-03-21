@@ -12,7 +12,7 @@ from viberpc import RpcServer, RpcClient, RpcError, ErrorCode, WsServer, WsClien
 pytestmark = pytest.mark.asyncio
 
 
-def make_client(port: int, role: str = "web", **kwargs) -> tuple[RpcClient, asyncio.Task]:
+def make_client(port: int, role: str = "web", **kwargs) -> RpcClient:
     transport = WsClient(
         f"ws://127.0.0.1:{port}",
         token="test-token",
@@ -21,9 +21,7 @@ def make_client(port: int, role: str = "web", **kwargs) -> tuple[RpcClient, asyn
         ping_interval=300,
         **kwargs,
     )
-    client = RpcClient(transport)
-    task = asyncio.create_task(client.connect())
-    return client, task
+    return RpcClient(transport)
 
 
 # ── Basic RPC ──────────────────────────────────────────────────────────
@@ -51,63 +49,56 @@ class TestBasicRpc:
         await self.server.stop()
 
     async def test_connect_and_authenticate(self):
-        client, task = make_client(self.port)
-        await client.wait_connected()
+        client = make_client(self.port)
+        await client.connect()
         assert client.connected
         await client.disconnect()
-        task.cancel()
 
     async def test_request_echo(self):
-        client, task = make_client(self.port)
-        await client.wait_connected()
+        client = make_client(self.port)
+        await client.connect()
         result = await client.request("echo", {"msg": "hello"})
         assert result == {"msg": "hello"}
         await client.disconnect()
-        task.cancel()
 
     async def test_request_add(self):
-        client, task = make_client(self.port)
-        await client.wait_connected()
+        client = make_client(self.port)
+        await client.connect()
         result = await client.request("add", {"a": 10, "b": 20})
         assert result == {"sum": 30}
         await client.disconnect()
-        task.cancel()
 
     async def test_request_server_time(self):
-        client, task = make_client(self.port)
-        await client.wait_connected()
+        client = make_client(self.port)
+        await client.connect()
         result = await client.request("server.time")
         assert result["time"] > 0
         await client.disconnect()
-        task.cancel()
 
     async def test_method_not_found(self):
-        client, task = make_client(self.port)
-        await client.wait_connected()
+        client = make_client(self.port)
+        await client.connect()
         with pytest.raises(RpcError) as exc_info:
             await client.request("nonexistent")
         assert exc_info.value.code == ErrorCode.METHOD_NOT_FOUND
         await client.disconnect()
-        task.cancel()
 
     async def test_rpc_error_from_handler(self):
-        client, task = make_client(self.port)
-        await client.wait_connected()
+        client = make_client(self.port)
+        await client.connect()
         with pytest.raises(RpcError) as exc_info:
             await client.request("throws")
         assert exc_info.value.code == ErrorCode.INVALID_PARAMS
         assert exc_info.value.message == "bad params"
         await client.disconnect()
-        task.cancel()
 
     async def test_generic_error_from_handler(self):
-        client, task = make_client(self.port)
-        await client.wait_connected()
+        client = make_client(self.port)
+        await client.connect()
         with pytest.raises(RpcError) as exc_info:
             await client.request("throws.generic")
         assert exc_info.value.code == ErrorCode.INTERNAL_ERROR
         await client.disconnect()
-        task.cancel()
 
 
 # ── Handler conn ─────────────────────────────────────────────────────
@@ -135,22 +126,20 @@ class TestHandlerConn:
         await self.server.stop()
 
     async def test_handler_receives_conn_with_meta(self):
-        client, task = make_client(self.port, role="node")
-        await client.wait_connected()
+        client = make_client(self.port, role="node")
+        await client.connect()
         result = await client.request("whoami")
         assert result["role"] == "node"
         assert result["authenticated"] is True
         await client.disconnect()
-        task.cancel()
 
     async def test_handler_requests_back_into_client(self):
-        client, task = make_client(self.port, role="node")
+        client = make_client(self.port, role="node")
         client.register("client.answer", lambda params: "42")
-        await client.wait_connected()
+        await client.connect()
         result = await client.request("ask.client")
         assert result["answer"] == "42"
         await client.disconnect()
-        task.cancel()
 
 
 # ── Bidirectional RPC ────────────────────────────────────────────────
@@ -168,21 +157,20 @@ class TestBidirectionalRpc:
         await self.server.stop()
 
     async def test_server_requests_client_method(self):
-        client, task = make_client(self.port, role="node")
+        client = make_client(self.port, role="node")
         client.register("client.ping", lambda params: "pong")
-        await client.wait_connected()
+        await client.connect()
 
         conn = self.server.get_connections("node")[0]
         result = await conn.request("client.ping")
         assert result == "pong"
 
         await client.disconnect()
-        task.cancel()
 
     async def test_server_requests_client_with_params(self):
-        client, task = make_client(self.port, role="node")
+        client = make_client(self.port, role="node")
         client.register("client.add", lambda params: params["a"] + params["b"])
-        await client.wait_connected()
+        await client.connect()
 
         conns = self.server.get_connections("node")
         conn = conns[-1]
@@ -190,7 +178,6 @@ class TestBidirectionalRpc:
         assert result == 15
 
         await client.disconnect()
-        task.cancel()
 
 
 # ── Pub/Sub ──────────────────────────────────────────────────────────
@@ -207,17 +194,16 @@ class TestPubSub:
         await self.server.stop()
 
     async def test_client_receives_broadcast(self):
-        client, task = make_client(self.port)
+        client = make_client(self.port)
         events = []
         client.subscribe("test.event", lambda data: events.append(data))
-        await client.wait_connected()
+        await client.connect()
 
         await self.server.broadcast("test.event", {"x": 42})
         await asyncio.sleep(0.2)
         assert events == [{"x": 42}]
 
         await client.disconnect()
-        task.cancel()
 
     async def test_server_receives_notification_via_subscribe(self):
         ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=300)
@@ -230,8 +216,8 @@ class TestPubSub:
         await fresh_server.start()
         port = fresh_server.address[1]
 
-        client, task = make_client(port, role="web")
-        await client.wait_connected()
+        client = make_client(port, role="web")
+        await client.connect()
 
         await client.publish("client.hello", {"from": "test"})
         await asyncio.sleep(0.2)
@@ -239,12 +225,11 @@ class TestPubSub:
         assert received == [{"data": {"from": "test"}, "role": "web"}]
 
         await client.disconnect()
-        task.cancel()
         await fresh_server.stop()
 
     async def test_server_receives_notification_via_conn_subscribe(self):
-        client, task = make_client(self.port)
-        await client.wait_connected()
+        client = make_client(self.port)
+        await client.connect()
 
         received = []
         conn = self.server.get_connections("web")[0]
@@ -255,17 +240,16 @@ class TestPubSub:
         assert received == [{"from": "test"}]
 
         await client.disconnect()
-        task.cancel()
 
     async def test_broadcast_except_skips_excluded(self):
-        client1, task1 = make_client(self.port, role="web")
-        client2, task2 = make_client(self.port, role="web")
+        client1 = make_client(self.port, role="web")
+        client2 = make_client(self.port, role="web")
         events1, events2 = [], []
         client1.subscribe("selective", lambda d: events1.append(d))
         client2.subscribe("selective", lambda d: events2.append(d))
 
-        await client1.wait_connected()
-        await client2.wait_connected()
+        await client1.connect()
+        await client2.connect()
 
         conns = self.server.get_connections("web")
         await self.server.broadcast_except("selective", {"msg": "hi"}, exclude=conns[0])
@@ -276,8 +260,6 @@ class TestPubSub:
 
         await client1.disconnect()
         await client2.disconnect()
-        task1.cancel()
-        task2.cancel()
 
 
 # ── Batch requests ──────────────────────────────────────────────────
@@ -307,8 +289,8 @@ class TestBatchRequests:
         await self.server.stop()
 
     async def test_basic_batch(self):
-        client, task = make_client(self.port)
-        await client.wait_connected()
+        client = make_client(self.port)
+        await client.connect()
 
         results = await client.batch_request([
             ("echo", {"x": 1}),
@@ -322,11 +304,10 @@ class TestBatchRequests:
         assert results[2] == {"x": 2}
 
         await client.disconnect()
-        task.cancel()
 
     async def test_batch_with_errors(self):
-        client, task = make_client(self.port)
-        await client.wait_connected()
+        client = make_client(self.port)
+        await client.connect()
 
         results = await client.batch_request([
             ("echo", {"ok": True}),
@@ -341,21 +322,19 @@ class TestBatchRequests:
         assert results[2] == {"sum": 3}
 
         await client.disconnect()
-        task.cancel()
 
     async def test_empty_batch(self):
-        client, task = make_client(self.port)
-        await client.wait_connected()
+        client = make_client(self.port)
+        await client.connect()
 
         results = await client.batch_request([])
         assert results == []
 
         await client.disconnect()
-        task.cancel()
 
     async def test_batch_preserves_order(self):
-        client, task = make_client(self.port)
-        await client.wait_connected()
+        client = make_client(self.port)
+        await client.connect()
 
         calls = [("slow_echo", {"i": i}) for i in range(10)]
         results = await client.batch_request(calls)
@@ -364,7 +343,6 @@ class TestBatchRequests:
             assert r == {"i": i}
 
         await client.disconnect()
-        task.cancel()
 
 
 # ── Connection management ──────────────────────────────────────────────
@@ -387,14 +365,13 @@ class TestConnectionManagement:
         self.server.on_connect(lambda conn: connected.append(conn))
         self.server.on_disconnect(lambda conn: disconnected.append(conn))
 
-        client, task = make_client(self.port, role="node")
-        await client.wait_connected()
+        client = make_client(self.port, role="node")
+        await client.connect()
 
         assert len(connected) >= 1
         assert len(self.server.get_connections()) >= 1
 
         await client.disconnect()
-        task.cancel()
         await asyncio.sleep(0.2)
 
         assert len(disconnected) >= 1
@@ -406,10 +383,10 @@ class TestConnectionManagement:
         await fresh_server.start()
         port = fresh_server.address[1]
 
-        c1, t1 = make_client(port, role="web")
-        await c1.wait_connected()
-        c2, t2 = make_client(port, role="node")
-        await c2.wait_connected()
+        c1 = make_client(port, role="web")
+        await c1.connect()
+        c2 = make_client(port, role="node")
+        await c2.connect()
         await asyncio.sleep(0.05)
 
         assert len(fresh_server.get_connections("web")) == 1
@@ -418,22 +395,18 @@ class TestConnectionManagement:
 
         await c1.disconnect()
         await c2.disconnect()
-        t1.cancel()
-        t2.cancel()
         await asyncio.sleep(0.2)
         await fresh_server.stop()
 
     async def test_multiple_web_clients(self):
         clients = []
-        tasks = []
         events = [[] for _ in range(3)]
 
         for i in range(3):
-            c, t = make_client(self.port, role="web")
+            c = make_client(self.port, role="web")
             c.subscribe("multi.test", lambda d, idx=i: events[idx].append(d))
-            await c.wait_connected()
+            await c.connect()
             clients.append(c)
-            tasks.append(t)
 
         await self.server.broadcast("multi.test", {"n": 1}, role="web")
         await asyncio.sleep(0.2)
@@ -441,9 +414,8 @@ class TestConnectionManagement:
         for ev_list in events:
             assert ev_list == [{"n": 1}]
 
-        for c, t in zip(clients, tasks):
+        for c in clients:
             await c.disconnect()
-            t.cancel()
         await asyncio.sleep(0.2)
 
 
@@ -468,15 +440,13 @@ class TestAuth:
             auto_reconnect=False, ping_interval=300,
         )
         client = RpcClient(transport)
-        task = asyncio.create_task(client.connect())
-        await client.wait_connected()
+        await client.connect()
         assert client.connected
 
         result = await client.request("echo", "ok")
         assert result == "ok"
 
         await client.disconnect()
-        task.cancel()
         await server.stop()
 
     async def test_invalid_token_rejected(self):
@@ -514,15 +484,13 @@ class TestAuth:
             auto_reconnect=False, ping_interval=300,
         )
         client = RpcClient(transport)
-        task = asyncio.create_task(client.connect())
-        await client.wait_connected()
+        await client.connect()
         assert client.connected
 
         result = await client.request("echo", "ok")
         assert result == "ok"
 
         await client.disconnect()
-        task.cancel()
         await server.stop()
 
     async def test_unauthenticated_cannot_call_methods(self):

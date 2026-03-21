@@ -5,7 +5,7 @@
 
 /** Single bidirectional message channel (one per connected peer). */
 export interface ITransportConnection {
-  send(raw: string): void;
+  send(raw: string): void | Promise<void>;
   close(): void;
   readonly isOpen: boolean;
   onMessage: ((raw: string) => void) | null;
@@ -14,11 +14,10 @@ export interface ITransportConnection {
 
 /** Client-side transport — manages outgoing connection lifecycle. */
 export interface ITransportClient {
-  connect(): void;
+  connect(timeoutMs?: number): Promise<void>;
   disconnect(): void;
-  send(raw: string): void;
+  send(raw: string): void | Promise<void>;
   readonly connected: boolean;
-  waitConnected(timeoutMs?: number): Promise<void>;
   onOpen: (() => void) | null;
   onClose: (() => void) | null;
   onMessage: ((raw: string) => void) | null;

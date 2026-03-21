@@ -67,23 +67,20 @@ describe("TS Server: Basic RPC", () => {
 
   it("should connect and authenticate", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     expect(client.connected).toBe(true);
   });
 
   it("should request echo", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     const result = await client.request("echo", { msg: "hello" });
     expect(result).toEqual({ msg: "hello" });
   });
 
   it("should request add", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     const result = await client.request<{ sum: number }>("add", {
       a: 10,
       b: 20,
@@ -93,8 +90,7 @@ describe("TS Server: Basic RPC", () => {
 
   it("should request server.time", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     const result = await client.request<{ time: number; iso: string }>(
       "server.time",
     );
@@ -104,8 +100,7 @@ describe("TS Server: Basic RPC", () => {
 
   it("should handle method not found", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     try {
       await client.request("nonexistent");
       expect.unreachable("should have thrown");
@@ -117,8 +112,7 @@ describe("TS Server: Basic RPC", () => {
 
   it("should handle RpcError thrown by handler", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     try {
       await client.request("throws");
       expect.unreachable("should have thrown");
@@ -131,8 +125,7 @@ describe("TS Server: Basic RPC", () => {
 
   it("should handle generic Error thrown by handler", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     try {
       await client.request("throws.generic");
       expect.unreachable("should have thrown");
@@ -172,8 +165,7 @@ describe("TS Server: Handler conn", () => {
 
   it("handler should receive conn with meta", async () => {
     client = createClient("node");
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     const result = await client.request<{
       role: string;
       authenticated: boolean;
@@ -185,8 +177,7 @@ describe("TS Server: Handler conn", () => {
   it("handler should use conn to request back into client", async () => {
     client = createClient("node");
     client.register("client.answer", () => "42");
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     const result = await client.request<{ answer: string }>("ask.client");
     expect(result.answer).toBe("42");
   });
@@ -215,8 +206,7 @@ describe("TS Server: Bidirectional RPC", () => {
   it("should request a method registered on the client from the server", async () => {
     client = createClient("node");
     client.register("client.ping", () => "pong");
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
 
     const conn = server.getConnections("node")[0];
     expect(conn).toBeDefined();
@@ -231,8 +221,7 @@ describe("TS Server: Bidirectional RPC", () => {
       "client.add",
       (params: { a: number; b: number }) => params.a + params.b,
     );
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
 
     const conns = server.getConnections("node");
     const conn = conns[conns.length - 1];
@@ -264,8 +253,7 @@ describe("TS Server: Pub/Sub", () => {
     client = createClient();
     const events: unknown[] = [];
     client.subscribe("test.event", (data) => events.push(data));
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
 
     server.broadcast("test.event", { x: 42 });
     await new Promise((r) => setTimeout(r, 200));
@@ -290,8 +278,7 @@ describe("TS Server: Pub/Sub", () => {
       WebSocket: WS,
     });
     const c = new RpcClient(transport);
-    c.connect();
-    await c.waitConnected(5000);
+    await c.connect();
 
     c.publish("client.hello", { from: "test" });
     await new Promise((r) => setTimeout(r, 200));
@@ -305,8 +292,7 @@ describe("TS Server: Pub/Sub", () => {
 
   it("server should receive notification via conn.subscribe()", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
 
     const received: unknown[] = [];
     const conn = server.getConnections("web")[0];
@@ -325,10 +311,8 @@ describe("TS Server: Pub/Sub", () => {
     client1.subscribe("selective", (d) => events1.push(d));
     client2.subscribe("selective", (d) => events2.push(d));
 
-    client1.connect();
-    await client1.waitConnected(5000);
-    client2.connect();
-    await client2.waitConnected(5000);
+    await client1.connect();
+    await client2.connect();
 
     const conns = server.getConnections("web");
     server.broadcastExcept("selective", { msg: "hi" }, conns[0]);
@@ -358,9 +342,7 @@ describe("TS Server: Batch requests", () => {
       throw new RpcError(-100, "intentional error");
     });
     server.register("slow_echo", async (conn, params) => {
-      await new Promise((r) =>
-        setTimeout(r, Math.random() * 50 + 10),
-      );
+      await new Promise((r) => setTimeout(r, Math.random() * 50 + 10));
       return params;
     });
     await server.start();
@@ -376,8 +358,7 @@ describe("TS Server: Batch requests", () => {
 
   it("should handle basic batch request", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
 
     const results = await client.batchRequest([
       ["echo", { x: 1 }],
@@ -393,8 +374,7 @@ describe("TS Server: Batch requests", () => {
 
   it("should handle batch with errors", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
 
     const results = await client.batchRequest([
       ["echo", { ok: true }],
@@ -411,8 +391,7 @@ describe("TS Server: Batch requests", () => {
 
   it("should handle empty batch", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
 
     const results = await client.batchRequest([]);
     expect(results).toEqual([]);
@@ -420,13 +399,12 @@ describe("TS Server: Batch requests", () => {
 
   it("should preserve order regardless of response timing", async () => {
     client = createClient();
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
 
-    const calls: Array<[string, unknown]> = Array.from({ length: 10 }, (_, i) => [
-      "slow_echo",
-      { i },
-    ]);
+    const calls: Array<[string, unknown]> = Array.from(
+      { length: 10 },
+      (_, i) => ["slow_echo", { i }],
+    );
     const results = await client.batchRequest(calls);
 
     for (let i = 0; i < results.length; i++) {
@@ -461,8 +439,7 @@ describe("TS Server: Connection management", () => {
     });
 
     const client = createClient("node");
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
 
     expect(connectCount.length).toBeGreaterThanOrEqual(1);
     expect(server.getConnections().length).toBeGreaterThanOrEqual(1);
@@ -496,10 +473,8 @@ describe("TS Server: Connection management", () => {
     });
     const c1 = new RpcClient(t1);
     const c2 = new RpcClient(t2);
-    c1.connect();
-    await c1.waitConnected(5000);
-    c2.connect();
-    await c2.waitConnected(5000);
+    await c1.connect();
+    await c2.connect();
     await new Promise((r) => setTimeout(r, 50));
 
     expect(freshServer.getConnections("web").length).toBe(1);
@@ -520,11 +495,10 @@ describe("TS Server: Connection management", () => {
     ];
     const events: unknown[][] = [[], [], []];
 
-    clients.forEach((c, i) => {
-      c.subscribe("multi.test", (d) => events[i].push(d));
-      c.connect();
-    });
-    await Promise.all(clients.map((c) => c.waitConnected(5000)));
+    for (let i = 0; i < clients.length; i++) {
+      clients[i].subscribe("multi.test", (d) => events[i].push(d));
+    }
+    await Promise.all(clients.map((c) => c.connect()));
 
     server.broadcast("multi.test", { n: 1 }, "web");
     await new Promise((r) => setTimeout(r, 200));
@@ -574,12 +548,12 @@ describe("TS Server: Custom auth handler", () => {
       WebSocket: WS,
     });
     const client = new RpcClient(transport);
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     expect(client.connected).toBe(true);
     const result = await client.request("echo", "ok");
     expect(result).toBe("ok");
     client.disconnect();
+    await new Promise((r) => setTimeout(r, 100));
   });
 
   it("should reject invalid token (HTTP 401, no WS connection)", async () => {
@@ -594,8 +568,7 @@ describe("TS Server: Custom auth handler", () => {
     client.onAuthFailed = () => {
       authFailed = true;
     };
-    client.connect();
-    await new Promise((r) => setTimeout(r, 500));
+    await client.connect();
     expect(authFailed).toBe(true);
     expect(client.connected).toBe(false);
     expect(authServer.getConnections().length).toBe(0);
@@ -616,8 +589,7 @@ describe("TS Server: Custom auth handler", () => {
       WebSocket: WS,
     });
     const client = new RpcClient(transport);
-    client.connect();
-    await client.waitConnected(5000);
+    await client.connect();
     expect(client.connected).toBe(true);
     const result = await client.request("echo", "ok");
     expect(result).toBe("ok");
@@ -634,8 +606,7 @@ describe("TS Server: Custom auth handler", () => {
       WebSocket: WS,
     });
     const client = new RpcClient(transport);
-    client.connect();
-    await new Promise((r) => setTimeout(r, 500));
+    await client.connect();
     expect(client.connected).toBe(false);
     expect(authServer.getConnections().length).toBe(0);
     client.disconnect();

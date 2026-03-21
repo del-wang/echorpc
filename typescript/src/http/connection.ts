@@ -23,16 +23,17 @@ export class HttpConnection implements ITransportConnection {
     return this._open;
   }
 
-  send(raw: string): void {
+  async send(raw: string): Promise<void> {
     if (!this._open) return;
-    fetch(this.callbackUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: raw,
-    }).catch(() => {
-      // If POST fails, mark connection as closed
+    try {
+      await fetch(this.callbackUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: raw,
+      });
+    } catch {
       this._markClosed();
-    });
+    }
   }
 
   close(): void {

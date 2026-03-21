@@ -44,7 +44,7 @@ class WsClient:
         self._conn: WsConnection | None = None
         self._reconnect_delay = INITIAL_RECONNECT_DELAY
         self._closed = False
-        self._connected_event = asyncio.Event()
+        self._loop_task: asyncio.Task[None] | None = None
 
         self.on_open: Callable[[], Any] | None = None
         self.on_close: Callable[[], Any] | None = None
@@ -70,21 +70,19 @@ class WsClient:
     def connected(self) -> bool:
         return self._conn is not None and self._conn.is_open
 
-    def send(self, raw: str) -> Any:
-        """Send raw string. Returns a coroutine."""
+    async def send(self, raw: str) -> None:
+        """Send raw string."""
         if self._conn and self._conn.is_open:
-            return self._conn.send(raw)
-        return self._noop()
+            await self._conn.send(raw)
 
-    async def _noop(self) -> None:
-        pass
-
-    async def wait_connected(self, timeout: float = 10.0) -> None:
-        await asyncio.wait_for(self._connected_event.wait(), timeout=timeout)
-
-    async def connect(self) -> None:
-        """Connect with auto-reconnect loop. Blocks until closed."""
+    async def connect(self, timeout: float = 10.0) -> None:
+        """Start connection loop in background. Returns when first connected or failed."""
         self._closed = False
+        ready: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        self._loop_task = asyncio.create_task(self._connect_loop(ready))
+        await asyncio.wait_for(ready, timeout=timeout)
+
+    async def _connect_loop(self, ready: asyncio.Future[None] | None = None) -> None:
         url = self._build_url()
         while not self._closed:
             try:
@@ -96,7 +94,9 @@ class WsClient:
                 self._conn.on_message = self._on_ws_message
                 self._conn.on_close = self._on_ws_close
 
-                self._connected_event.set()
+                if ready and not ready.done():
+                    ready.set_result(None)
+                    ready = None
                 if self.on_open:
                     self.on_open()
                 logger.info("connected to %s (role=%s)", self.url, self.role)
@@ -105,14 +105,18 @@ class WsClient:
             except InvalidStatus as e:
                 if e.response.status_code == 401:
                     logger.error("auth failed: HTTP 401")
+                    if ready and not ready.done():
+                        ready.set_result(None)
+                        ready = None
                     if self.on_auth_failed:
                         self.on_auth_failed()
                     break
                 logger.warning("connection lost: %s", e)
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 logger.warning("connection lost: %s", e)
             finally:
-                self._connected_event.clear()
                 if self.on_close:
                     self.on_close()
 
@@ -122,10 +126,20 @@ class WsClient:
             await asyncio.sleep(self._reconnect_delay)
             self._reconnect_delay = min(self._reconnect_delay * 2, self.max_reconnect_delay)
 
+        if ready and not ready.done():
+            ready.set_result(None)
+
     async def disconnect(self) -> None:
         self._closed = True
         if self._conn:
             await self._conn.close()
+        if self._loop_task and not self._loop_task.done():
+            self._loop_task.cancel()
+            try:
+                await self._loop_task
+            except asyncio.CancelledError:
+                pass
+            self._loop_task = None
 
     def _on_ws_message(self, raw: str) -> Any:
         if self.on_message:

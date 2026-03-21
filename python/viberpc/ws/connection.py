@@ -39,14 +39,11 @@ class WsConnection:
     def is_open(self) -> bool:
         return not self._closed and self.ws.state.name == "OPEN"
 
-    def send(self, raw: str) -> Any:
-        """Send raw string. Returns a coroutine that must be awaited."""
+    async def send(self, raw: str) -> None:
+        """Send raw string."""
         if self._closed:
-            return self._noop()
-        return self.ws.send(raw)
-
-    async def _noop(self) -> None:
-        pass
+            return
+        await self.ws.send(raw)
 
     async def close(self) -> None:
         self._closed = True

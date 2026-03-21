@@ -26,7 +26,7 @@ export class MessageRouter {
   private _closed = false;
 
   constructor(
-    private readonly _send: (raw: string) => void,
+    private readonly _send: (raw: string) => void | Promise<void>,
     private readonly _timeout: number = 30_000,
   ) {}
 

@@ -41,8 +41,6 @@ class HttpClient:
         self._site: web.TCPSite | None = None
         self._session: aiohttp.ClientSession | None = None
         self._callback_url: str | None = None
-        self._connected_event = asyncio.Event()
-
         self.on_open: Callable[[], Any] | None = None
         self.on_close: Callable[[], Any] | None = None
         self.on_message: Callable[[str], Any] | None = None
@@ -69,11 +67,11 @@ class HttpClient:
         except Exception:
             await self._mark_disconnected()
 
-    async def wait_connected(self, timeout: float = 10.0) -> None:
-        await asyncio.wait_for(self._connected_event.wait(), timeout=timeout)
-
-    async def connect(self) -> None:
+    async def connect(self, timeout: float = 10.0) -> None:
         """Start callback server and register with remote server."""
+        await asyncio.wait_for(self._do_connect(), timeout=timeout)
+
+    async def _do_connect(self) -> None:
         try:
             # Start local callback server
             app = web.Application()
@@ -112,7 +110,6 @@ class HttpClient:
                 data = await resp.json()
                 self._connection_id = data["connection_id"]
                 self._connected = True
-                self._connected_event.set()
                 if self.on_open:
                     self.on_open()
 
@@ -148,7 +145,6 @@ class HttpClient:
             return
         self._connected = False
         self._connection_id = None
-        self._connected_event.clear()
         if self.on_close:
             self.on_close()
 
