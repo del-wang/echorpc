@@ -527,3 +527,233 @@ class TestAuth:
         assert exc_info.value.code == ErrorCode.NOT_CONNECTED
 
         await server.stop()
+
+
+# ── Auto-reconnect ──────────────────────────────────────────────────
+
+
+class TestAutoReconnect:
+    async def test_reconnect_after_server_restart(self):
+        """Client with auto_reconnect=True reconnects after server restart."""
+        ws1 = WsServer(host="127.0.0.1", port=0, ping_interval=300)
+        srv1 = RpcServer(ws1)
+        srv1.register("echo", lambda conn, p: p)
+        await srv1.start()
+        port = srv1.address[1]
+
+        transport = WsClient(
+            f"ws://127.0.0.1:{port}",
+            token="t", role="web",
+            auto_reconnect=True, max_reconnect_delay=0.5, ping_interval=300,
+        )
+        client = RpcClient(transport)
+        await client.connect()
+        assert client.connected
+
+        r1 = await client.request("echo", {"v": 1})
+        assert r1 == {"v": 1}
+
+        # Track reconnect
+        reconnected = asyncio.Event()
+        client.on_connect = lambda: reconnected.set()
+
+        # Stop server
+        await srv1.stop()
+        await asyncio.sleep(0.3)
+        assert not client.connected
+
+        # Restart on same port
+        ws2 = WsServer(host="127.0.0.1", port=port, ping_interval=300)
+        srv2 = RpcServer(ws2)
+        srv2.register("echo", lambda conn, p: p)
+        await srv2.start()
+
+        # Wait for reconnect
+        await asyncio.wait_for(reconnected.wait(), timeout=5.0)
+        assert client.connected
+
+        r2 = await client.request("echo", {"v": 2})
+        assert r2 == {"v": 2}
+
+        await client.disconnect()
+        await srv2.stop()
+
+    async def test_preserve_handlers_across_reconnect(self):
+        """Client-registered handlers survive reconnect."""
+        ws1 = WsServer(host="127.0.0.1", port=0, ping_interval=300)
+        srv1 = RpcServer(ws1)
+
+        async def ask(conn, p):
+            return await conn.request("client.double", p)
+        srv1.register("ask", ask)
+        await srv1.start()
+        port = srv1.address[1]
+
+        transport = WsClient(
+            f"ws://127.0.0.1:{port}",
+            token="t", role="node",
+            auto_reconnect=True, max_reconnect_delay=0.5, ping_interval=300,
+        )
+        client = RpcClient(transport)
+        client.register("client.double", lambda p: p["x"] * 2)
+        await client.connect()
+
+        r1 = await client.request("ask", {"x": 5})
+        assert r1 == 10
+
+        reconnected = asyncio.Event()
+        client.on_connect = lambda: reconnected.set()
+
+        await srv1.stop()
+        await asyncio.sleep(0.3)
+
+        ws2 = WsServer(host="127.0.0.1", port=port, ping_interval=300)
+        srv2 = RpcServer(ws2)
+        srv2.register("ask", ask)
+        await srv2.start()
+
+        await asyncio.wait_for(reconnected.wait(), timeout=5.0)
+        assert client.connected
+
+        r2 = await client.request("ask", {"x": 7})
+        assert r2 == 14
+
+        await client.disconnect()
+        await srv2.stop()
+
+    async def test_preserve_subscriptions_across_reconnect(self):
+        """Client subscriptions survive reconnect."""
+        ws1 = WsServer(host="127.0.0.1", port=0, ping_interval=300)
+        srv1 = RpcServer(ws1)
+        await srv1.start()
+        port = srv1.address[1]
+
+        transport = WsClient(
+            f"ws://127.0.0.1:{port}",
+            token="t", role="web",
+            auto_reconnect=True, max_reconnect_delay=0.5, ping_interval=300,
+        )
+        client = RpcClient(transport)
+        events = []
+        client.subscribe("news", lambda d: events.append(d))
+        await client.connect()
+
+        await srv1.broadcast("news", {"n": 1})
+        await asyncio.sleep(0.2)
+        assert events == [{"n": 1}]
+
+        reconnected = asyncio.Event()
+        client.on_connect = lambda: reconnected.set()
+
+        await srv1.stop()
+        await asyncio.sleep(0.3)
+
+        ws2 = WsServer(host="127.0.0.1", port=port, ping_interval=300)
+        srv2 = RpcServer(ws2)
+        await srv2.start()
+
+        await asyncio.wait_for(reconnected.wait(), timeout=5.0)
+        assert client.connected
+
+        await srv2.broadcast("news", {"n": 2})
+        await asyncio.sleep(0.2)
+        assert events == [{"n": 1}, {"n": 2}]
+
+        await client.disconnect()
+        await srv2.stop()
+
+
+# ── Server decorator syntax ──────────────────────────────────────────
+
+
+class TestServerDecorators:
+    @pytest.fixture(autouse=True)
+    async def setup(self):
+        ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=300)
+        self.server = RpcServer(ws_server)
+        yield
+        await self.server.stop()
+
+    async def test_method_decorator_with_name(self):
+        """@server.method("name") registers an RPC method."""
+        @self.server.method("add")
+        def add(conn, params):
+            return {"sum": params["a"] + params["b"]}
+
+        await self.server.start()
+        port = self.server.address[1]
+
+        client = make_client(port)
+        await client.connect()
+        result = await client.request("add", {"a": 3, "b": 4})
+        assert result == {"sum": 7}
+        await client.disconnect()
+
+    async def test_method_decorator_infers_name(self):
+        """@server.method() uses function name as method name."""
+        @self.server.method()
+        def echo(conn, params):
+            return params
+
+        await self.server.start()
+        port = self.server.address[1]
+
+        client = make_client(port)
+        await client.connect()
+        result = await client.request("echo", {"msg": "hi"})
+        assert result == {"msg": "hi"}
+        await client.disconnect()
+
+    async def test_method_decorator_async_handler(self):
+        """@server.method works with async handlers."""
+        @self.server.method("compute")
+        async def compute(conn, params):
+            await asyncio.sleep(0.01)
+            return {"result": params["x"] * 2}
+
+        await self.server.start()
+        port = self.server.address[1]
+
+        client = make_client(port)
+        await client.connect()
+        result = await client.request("compute", {"x": 21})
+        assert result == {"result": 42}
+        await client.disconnect()
+
+    async def test_subscription_decorator_with_name(self):
+        """@server.subscription("name") registers a notification subscriber."""
+        received = []
+
+        @self.server.subscription("chat")
+        def on_chat(conn, data):
+            received.append({"data": data, "role": conn.meta.get("role")})
+
+        await self.server.start()
+        port = self.server.address[1]
+
+        client = make_client(port)
+        await client.connect()
+        await client.publish("chat", {"text": "hello"})
+        await asyncio.sleep(0.2)
+
+        assert received == [{"data": {"text": "hello"}, "role": "web"}]
+        await client.disconnect()
+
+    async def test_subscription_decorator_infers_name(self):
+        """@server.subscription() uses function name as event name."""
+        received = []
+
+        @self.server.subscription()
+        def on_event(conn, data):
+            received.append(data)
+
+        await self.server.start()
+        port = self.server.address[1]
+
+        client = make_client(port)
+        await client.connect()
+        await client.publish("on_event", {"x": 1})
+        await asyncio.sleep(0.2)
+
+        assert received == [{"x": 1}]
+        await client.disconnect()

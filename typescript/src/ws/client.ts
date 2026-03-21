@@ -75,6 +75,7 @@ export class WsClient implements ITransportClient {
 
   connect(timeoutMs = 10_000): Promise<void> {
     this.intentionalClose = false;
+    this._everConnected = false;
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this._connectResolve = null;
@@ -139,19 +140,22 @@ export class WsClient implements ITransportClient {
 
   private _onOpen(): void {
     this._connected = true;
+    this._everConnected = true;
     this.reconnectAttempt = 0;
     this._startPing();
     this._connectResolve?.();
     this.onOpen?.();
   }
 
+  private _everConnected = false;
+
   private _onClose(): void {
     const wasConnected = this._connected;
     this._connected = false;
     this._cleanup();
 
-    // Auth failure: close before open when token is set
-    if (!wasConnected && this.token) {
+    // Auth failure: close before first open when token is set
+    if (!wasConnected && !this._everConnected && this.token) {
       this._connectReject?.(
         new RpcError(ErrorCode.AUTH_FAILED, "auth failed"),
       );

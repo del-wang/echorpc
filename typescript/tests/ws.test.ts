@@ -617,3 +617,152 @@ describe("TS Server: Custom auth handler", () => {
     await client.disconnect();
   });
 });
+
+// ── Auto-reconnect ──────────────────────────────────────────────────────
+
+describe("TS Server: Auto-reconnect", () => {
+  it("should auto-reconnect after server restart and resume requests", async () => {
+    // Start initial server
+    let ws1 = new WsServer({ port: 0 });
+    let srv1 = new RpcServer(ws1);
+    srv1.register("echo", (conn, p) => p);
+    await srv1.start();
+    const port = srv1.address!.port;
+
+    // Connect with autoReconnect: true
+    const transport = new WsClient(`ws://127.0.0.1:${port}`, {
+      token: "t",
+      role: "web",
+      autoReconnect: true,
+      maxReconnectDelay: 500,
+      pingInterval: 300_000,
+      WebSocket: WS,
+    });
+    const client = new RpcClient(transport);
+    await client.connect();
+    expect(client.connected).toBe(true);
+
+    // Verify initial request works
+    const r1 = await client.request("echo", { v: 1 });
+    expect(r1).toEqual({ v: 1 });
+
+    // Track reconnect via onConnect
+    let reconnected = false;
+    client.onConnect = () => {
+      reconnected = true;
+    };
+
+    // Stop the server — client should detect disconnect
+    await srv1.stop();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(client.connected).toBe(false);
+
+    // Restart a NEW server on the same port
+    const ws2 = new WsServer({ port });
+    const srv2 = new RpcServer(ws2);
+    srv2.register("echo", (conn, p) => p);
+    await srv2.start();
+
+    // Wait for auto-reconnect (backoff starts at 200ms, max 500ms)
+    await new Promise((r) => setTimeout(r, 2000));
+    expect(reconnected).toBe(true);
+    expect(client.connected).toBe(true);
+
+    // Verify request works after reconnect
+    const r2 = await client.request("echo", { v: 2 });
+    expect(r2).toEqual({ v: 2 });
+
+    await client.disconnect();
+    await srv2.stop();
+  });
+
+  it("should preserve registered handlers across reconnect", async () => {
+    let ws1 = new WsServer({ port: 0 });
+    let srv1 = new RpcServer(ws1);
+    srv1.register("ask", async (conn, p) => await conn.request("client.double", p));
+    await srv1.start();
+    const port = srv1.address!.port;
+
+    const transport = new WsClient(`ws://127.0.0.1:${port}`, {
+      token: "t",
+      role: "node",
+      autoReconnect: true,
+      maxReconnectDelay: 500,
+      pingInterval: 300_000,
+      WebSocket: WS,
+    });
+    const client = new RpcClient(transport);
+    // Register handler BEFORE connect
+    client.register("client.double", (p: { x: number }) => p.x * 2);
+    await client.connect();
+
+    // Verify bidirectional works
+    const r1 = await client.request<{ answer: number }>("ask", { x: 5 });
+    expect(r1).toBe(10);
+
+    // Restart server
+    await srv1.stop();
+    await new Promise((r) => setTimeout(r, 300));
+
+    const ws2 = new WsServer({ port });
+    const srv2 = new RpcServer(ws2);
+    srv2.register("ask", async (conn, p) => await conn.request("client.double", p));
+    await srv2.start();
+
+    // Wait for reconnect
+    await new Promise((r) => setTimeout(r, 2000));
+    expect(client.connected).toBe(true);
+
+    // Verify handler still works after reconnect
+    const r2 = await client.request<{ answer: number }>("ask", { x: 7 });
+    expect(r2).toBe(14);
+
+    await client.disconnect();
+    await srv2.stop();
+  });
+
+  it("should preserve subscriptions across reconnect", async () => {
+    let ws1 = new WsServer({ port: 0 });
+    let srv1 = new RpcServer(ws1);
+    await srv1.start();
+    const port = srv1.address!.port;
+
+    const transport = new WsClient(`ws://127.0.0.1:${port}`, {
+      token: "t",
+      role: "web",
+      autoReconnect: true,
+      maxReconnectDelay: 500,
+      pingInterval: 300_000,
+      WebSocket: WS,
+    });
+    const client = new RpcClient(transport);
+    const events: unknown[] = [];
+    client.subscribe("news", (d) => events.push(d));
+    await client.connect();
+
+    // Broadcast before restart
+    srv1.broadcast("news", { n: 1 });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(events).toEqual([{ n: 1 }]);
+
+    // Restart server
+    await srv1.stop();
+    await new Promise((r) => setTimeout(r, 300));
+
+    const ws2 = new WsServer({ port });
+    const srv2 = new RpcServer(ws2);
+    await srv2.start();
+
+    // Wait for reconnect
+    await new Promise((r) => setTimeout(r, 2000));
+    expect(client.connected).toBe(true);
+
+    // Broadcast after restart — subscription should still fire
+    srv2.broadcast("news", { n: 2 });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(events).toEqual([{ n: 1 }, { n: 2 }]);
+
+    await client.disconnect();
+    await srv2.stop();
+  });
+});
