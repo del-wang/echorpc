@@ -466,7 +466,9 @@ class TestAuth:
             auto_reconnect=False, ping_interval=300,
         )
         client = RpcClient(transport)
-        await client.connect()
+        with pytest.raises(RpcError) as exc_info:
+            await client.connect()
+        assert exc_info.value.code == ErrorCode.AUTH_FAILED
         assert not client.connected
         assert len(server.get_connections()) == 0
 
@@ -510,8 +512,18 @@ class TestAuth:
             auto_reconnect=False, ping_interval=300,
         )
         client = RpcClient(transport)
-        await client.connect()
+        with pytest.raises(RpcError) as exc_info:
+            await client.connect()
+        assert exc_info.value.code == ErrorCode.AUTH_FAILED
         assert not client.connected
         assert len(server.get_connections()) == 0
+
+        with pytest.raises(RpcError) as exc_info:
+            await client.request("echo", "ok")
+        assert exc_info.value.code == ErrorCode.NOT_CONNECTED
+
+        with pytest.raises(RpcError) as exc_info:
+            await client.publish("echo", "ok")
+        assert exc_info.value.code == ErrorCode.NOT_CONNECTED
 
         await server.stop()

@@ -41,8 +41,3 @@ export {
 export { WsConnection } from "./ws/connection.js";
 export { WsClient, type WsClientOptions } from "./ws/client.js";
 export { WsServer, type WsServerOptions } from "./ws/server.js";
-
-// HTTP transport
-export { HttpConnection } from "./http/connection.js";
-export { HttpClient, type HttpClientOptions } from "./http/client.js";
-export { HttpServer, type HttpServerOptions } from "./http/server.js";

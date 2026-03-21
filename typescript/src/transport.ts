@@ -15,8 +15,8 @@ export interface ITransportConnection {
 /** Client-side transport — manages outgoing connection lifecycle. */
 export interface ITransportClient {
   connect(timeoutMs?: number): Promise<void>;
-  disconnect(): void;
-  send(raw: string): void | Promise<void>;
+  disconnect(): Promise<void>;
+  send(raw: string): Promise<void>;
   readonly connected: boolean;
   onOpen: (() => void) | null;
   onClose: (() => void) | null;

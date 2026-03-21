@@ -70,32 +70,41 @@ export class WsClient implements ITransportClient {
     return this._connected;
   }
 
-  private _connectResolve: ((err?: Error) => void) | null = null;
+  private _connectResolve: (() => void) | null = null;
+  private _connectReject: ((err: Error) => void) | null = null;
 
   connect(timeoutMs = 10_000): Promise<void> {
     this.intentionalClose = false;
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this._connectResolve = null;
+        this._connectReject = null;
         reject(new RpcError(ErrorCode.TIMEOUT, "connection timeout"));
       }, timeoutMs);
       this._connectResolve = () => {
         clearTimeout(timer);
         this._connectResolve = null;
+        this._connectReject = null;
         resolve();
+      };
+      this._connectReject = (err) => {
+        clearTimeout(timer);
+        this._connectResolve = null;
+        this._connectReject = null;
+        reject(err);
       };
       this._doConnect();
     });
   }
 
-  disconnect(): void {
+  async disconnect(): Promise<void> {
     this.intentionalClose = true;
     this._cleanup();
     this.ws?.close();
     this.ws = null;
   }
 
-  send(raw: string): void {
+  async send(raw: string): Promise<void> {
     if (this.ws?.readyState === WS_OPEN) {
       this.ws.send(raw);
     }
@@ -143,7 +152,9 @@ export class WsClient implements ITransportClient {
 
     // Auth failure: close before open when token is set
     if (!wasConnected && this.token) {
-      this._connectResolve?.();
+      this._connectReject?.(
+        new RpcError(ErrorCode.AUTH_FAILED, "auth failed"),
+      );
       this.onAuthFailed?.();
       return;
     }
@@ -152,7 +163,9 @@ export class WsClient implements ITransportClient {
     if (!this.intentionalClose && this.autoReconnect) {
       this._scheduleReconnect();
     } else {
-      this._connectResolve?.();
+      this._connectReject?.(
+        new RpcError(ErrorCode.NOT_CONNECTED, "connection failed"),
+      );
     }
   }
 

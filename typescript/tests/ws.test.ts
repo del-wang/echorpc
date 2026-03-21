@@ -61,8 +61,8 @@ describe("TS Server: Basic RPC", () => {
   afterAll(async () => {
     await server.stop();
   });
-  afterEach(() => {
-    client?.disconnect();
+  afterEach(async () => {
+    await client?.disconnect();
   });
 
   it("should connect and authenticate", async () => {
@@ -159,8 +159,8 @@ describe("TS Server: Handler conn", () => {
   afterAll(async () => {
     await server.stop();
   });
-  afterEach(() => {
-    client?.disconnect();
+  afterEach(async () => {
+    await client?.disconnect();
   });
 
   it("handler should receive conn with meta", async () => {
@@ -199,8 +199,8 @@ describe("TS Server: Bidirectional RPC", () => {
   afterAll(async () => {
     await server.stop();
   });
-  afterEach(() => {
-    client?.disconnect();
+  afterEach(async () => {
+    await client?.disconnect();
   });
 
   it("should request a method registered on the client from the server", async () => {
@@ -215,7 +215,6 @@ describe("TS Server: Bidirectional RPC", () => {
   });
 
   it("should request client with params and get result", async () => {
-    await new Promise((r) => setTimeout(r, 50));
     client = createClient("node");
     client.register(
       "client.add",
@@ -245,8 +244,8 @@ describe("TS Server: Pub/Sub", () => {
   afterAll(async () => {
     await server.stop();
   });
-  afterEach(() => {
-    client?.disconnect();
+  afterEach(async () => {
+    await client?.disconnect();
   });
 
   it("client should receive broadcast notification from server", async () => {
@@ -285,8 +284,7 @@ describe("TS Server: Pub/Sub", () => {
 
     expect(received).toEqual([{ data: { from: "test" }, role: "web" }]);
 
-    c.disconnect();
-    await new Promise((r) => setTimeout(r, 100));
+    await c.disconnect();
     await freshServer.stop();
   });
 
@@ -321,8 +319,8 @@ describe("TS Server: Pub/Sub", () => {
     const totalReceived = events1.length + events2.length;
     expect(totalReceived).toBe(1);
 
-    client1.disconnect();
-    client2.disconnect();
+    await client1.disconnect();
+    await client2.disconnect();
   });
 });
 
@@ -352,8 +350,8 @@ describe("TS Server: Batch requests", () => {
   afterAll(async () => {
     await server.stop();
   });
-  afterEach(() => {
-    client?.disconnect();
+  afterEach(async () => {
+    await client?.disconnect();
   });
 
   it("should handle basic batch request", async () => {
@@ -444,7 +442,7 @@ describe("TS Server: Connection management", () => {
     expect(connectCount.length).toBeGreaterThanOrEqual(1);
     expect(server.getConnections().length).toBeGreaterThanOrEqual(1);
 
-    client.disconnect();
+    await client.disconnect();
     await new Promise((r) => setTimeout(r, 200));
 
     expect(disconnectCount.length).toBeGreaterThanOrEqual(1);
@@ -475,15 +473,12 @@ describe("TS Server: Connection management", () => {
     const c2 = new RpcClient(t2);
     await c1.connect();
     await c2.connect();
-    await new Promise((r) => setTimeout(r, 50));
-
     expect(freshServer.getConnections("web").length).toBe(1);
     expect(freshServer.getConnections("node").length).toBe(1);
     expect(freshServer.getConnections().length).toBe(2);
 
-    c1.disconnect();
-    c2.disconnect();
-    await new Promise((r) => setTimeout(r, 200));
+    await c1.disconnect();
+    await c2.disconnect();
     await freshServer.stop();
   });
 
@@ -510,7 +505,6 @@ describe("TS Server: Connection management", () => {
     clients.forEach((c) => {
       c.disconnect();
     });
-    await new Promise((r) => setTimeout(r, 200));
   });
 });
 
@@ -552,12 +546,10 @@ describe("TS Server: Custom auth handler", () => {
     expect(client.connected).toBe(true);
     const result = await client.request("echo", "ok");
     expect(result).toBe("ok");
-    client.disconnect();
-    await new Promise((r) => setTimeout(r, 100));
+    await client.disconnect();
   });
 
   it("should reject invalid token (HTTP 401, no WS connection)", async () => {
-    let authFailed = false;
     const transport = new WsClient(`ws://127.0.0.1:${authPort}`, {
       token: "wrong-token",
       autoReconnect: false,
@@ -565,14 +557,14 @@ describe("TS Server: Custom auth handler", () => {
       WebSocket: WS,
     });
     const client = new RpcClient(transport);
-    client.onAuthFailed = () => {
-      authFailed = true;
-    };
-    await client.connect();
-    expect(authFailed).toBe(true);
+    try {
+      await client.connect();
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(RpcError);
+      expect((e as RpcError).code).toBe(ErrorCode.AUTH_FAILED);
+    }
     expect(client.connected).toBe(false);
-    expect(authServer.getConnections().length).toBe(0);
-    client.disconnect();
   });
 
   it("should accept all connections when no auth handler", async () => {
@@ -593,8 +585,7 @@ describe("TS Server: Custom auth handler", () => {
     expect(client.connected).toBe(true);
     const result = await client.request("echo", "ok");
     expect(result).toBe("ok");
-    client.disconnect();
-    await new Promise((r) => setTimeout(r, 100));
+    await client.disconnect();
     await noAuthServer.stop();
   });
 
@@ -606,9 +597,23 @@ describe("TS Server: Custom auth handler", () => {
       WebSocket: WS,
     });
     const client = new RpcClient(transport);
-    await client.connect();
+    try {
+      await client.connect();
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(RpcError);
+      expect((e as RpcError).code).toBe(ErrorCode.AUTH_FAILED);
+    }
     expect(client.connected).toBe(false);
     expect(authServer.getConnections().length).toBe(0);
-    client.disconnect();
+    try {
+      await client.request("echo", "ok");
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(RpcError);
+      expect((e as RpcError).code).toBe(ErrorCode.NOT_CONNECTED);
+    }
+    expect(() => client.publish("echo", "ok")).toThrow(RpcError);
+    await client.disconnect();
   });
 });

@@ -13,6 +13,7 @@ from websockets.exceptions import InvalidStatus
 from ..core import (
     DEFAULT_PING_INTERVAL, INITIAL_RECONNECT_DELAY,
     DEFAULT_MAX_RECONNECT_DELAY,
+    RpcError, ErrorCode,
 )
 from .connection import WsConnection
 
@@ -76,7 +77,7 @@ class WsClient:
             await self._conn.send(raw)
 
     async def connect(self, timeout: float = 10.0) -> None:
-        """Start connection loop in background. Returns when first connected or failed."""
+        """Start connection loop in background. Returns when first connected or raises on failure."""
         self._closed = False
         ready: asyncio.Future[None] = asyncio.get_event_loop().create_future()
         self._loop_task = asyncio.create_task(self._connect_loop(ready))
@@ -106,7 +107,7 @@ class WsClient:
                 if e.response.status_code == 401:
                     logger.error("auth failed: HTTP 401")
                     if ready and not ready.done():
-                        ready.set_result(None)
+                        ready.set_exception(RpcError(ErrorCode.AUTH_FAILED, "auth failed"))
                         ready = None
                     if self.on_auth_failed:
                         self.on_auth_failed()
@@ -127,7 +128,7 @@ class WsClient:
             self._reconnect_delay = min(self._reconnect_delay * 2, self.max_reconnect_delay)
 
         if ready and not ready.done():
-            ready.set_result(None)
+            ready.set_exception(RpcError(ErrorCode.NOT_CONNECTED, "connection failed"))
 
     async def disconnect(self) -> None:
         self._closed = True

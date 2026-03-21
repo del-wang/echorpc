@@ -4,6 +4,7 @@
  */
 
 import type { RpcHandler, EventCallback } from "./core.js";
+import { RpcError, ErrorCode } from "./core.js";
 import { MessageRouter } from "./router.js";
 import type { ITransportClient } from "./transport.js";
 
@@ -18,10 +19,7 @@ export class RpcClient {
   private _handlers = new Map<string, RpcHandler>();
   private _subscribers = new Map<string, Set<EventCallback>>();
 
-  constructor(
-    transport: ITransportClient,
-    opts?: { timeout?: number },
-  ) {
+  constructor(transport: ITransportClient, opts?: { timeout?: number }) {
     this.transport = transport;
     this.router = new MessageRouter(
       (raw) => this.transport.send(raw),
@@ -56,9 +54,9 @@ export class RpcClient {
     return this.transport.connect(timeoutMs);
   }
 
-  disconnect(): void {
-    this.transport.disconnect();
+  disconnect(): Promise<void> {
     this.router.close();
+    return this.transport.disconnect();
   }
 
   // ── RPC methods (delegate to router) ────────────────────────────────
@@ -74,18 +72,31 @@ export class RpcClient {
   }
 
   request<T = unknown>(method: string, params?: unknown): Promise<T> {
+    if (!this.connected) {
+      return Promise.reject(
+        new RpcError(ErrorCode.NOT_CONNECTED, "not connected"),
+      );
+    }
     return this.router.request<T>(method, params);
   }
 
   batchRequest<T = unknown>(
     calls: Array<[method: string, params?: unknown]>,
   ): Promise<T[]> {
+    if (!this.connected) {
+      return Promise.reject(
+        new RpcError(ErrorCode.NOT_CONNECTED, "not connected"),
+      );
+    }
     return this.router.batchRequest<T>(calls);
   }
 
   // ── Pub/Sub (delegate to router) ────────────────────────────────────
 
   publish(method: string, params?: unknown): void {
+    if (!this.connected) {
+      throw new RpcError(ErrorCode.NOT_CONNECTED, "not connected");
+    }
     this.router.publish(method, params);
   }
 
