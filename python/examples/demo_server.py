@@ -25,19 +25,19 @@ server = RpcServer(
 # ── Register server-side RPC methods (decorator style) ─────────────────────
 
 @server.method("echo")
-def handle_echo(params, conn):
+def handle_echo(conn, params):
     """Echo back params."""
     return params
 
 
 @server.method("add")
-def handle_add(params, conn):
+def handle_add(conn, params):
     """Add two numbers."""
     return {"sum": params["a"] + params["b"]}
 
 
 @server.method("server.time")
-def handle_server_time(params, conn):
+def handle_server_time(conn, params):
     """Return server timestamp."""
     return {"time": time.time(), "iso": time.strftime("%Y-%m-%dT%H:%M:%S")}
 
@@ -45,7 +45,7 @@ def handle_server_time(params, conn):
 # ── Notification handling (decorator style) ──────────────────────────────
 
 @server.subscription("web.message")
-async def on_web_message(data, conn):
+async def on_web_message(conn, data):
     """Handle web notifications — conn is the connection that published."""
     logger.info("web message from %s: %s", conn.meta.get("role"), data)
 

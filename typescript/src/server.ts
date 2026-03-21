@@ -5,7 +5,7 @@
  * @example
  * import { RpcServer } from "viberpc/server";
  * const server = new RpcServer({ port: 9100 });
- * server.register("echo", (params, conn) => params);
+ * server.register("echo", (conn, params) => params);
  * await server.start();
  */
 
@@ -14,21 +14,21 @@ import { RpcConnection } from "./connection.js";
 // ── Types ──────────────────────────────────────────────────────────────
 
 /**
- * Server-side RPC handler — receives the calling connection as `conn`.
+ * Server-side RPC handler — receives the calling connection as first arg.
  * Use `conn` to request/publish back to the specific client.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ServerRpcHandler<T = any> = (
-  params: T,
   conn: RpcConnection,
+  params: T,
 ) => any | Promise<any>;
 
 /**
- * Server-side notification callback — receives the publishing connection as `conn`.
+ * Server-side notification callback — receives the publishing connection as first arg.
  */
 export type ServerEventCallback<T = unknown> = (
-  data: T,
   conn: RpcConnection,
+  data: T,
 ) => void | Promise<void>;
 
 export type AuthHandler = (
@@ -161,11 +161,11 @@ export class RpcServer {
   // ── RPC Registration ─────────────────────────────────────────────────
 
   /**
-   * Register a global RPC method. The handler receives `(params, conn)` where
+   * Register a global RPC method. The handler receives `(conn, params)` where
    * `conn` is the `RpcConnection` that made the call.
    *
    * @example
-   * server.register("echo", (params, conn) => {
+   * server.register("echo", (conn, params) => {
    *   console.log("called by", conn.meta.role);
    *   return params;
    * });
@@ -182,10 +182,10 @@ export class RpcServer {
 
   /**
    * Subscribe to notifications published by clients. The callback receives
-   * `(data, conn)` where `conn` is the `RpcConnection` that published.
+   * `(conn, data)` where `conn` is the `RpcConnection` that published.
    *
    * @example
-   * server.subscribe("chat.message", (data, conn) => {
+   * server.subscribe("chat.message", (conn, data) => {
    *   server.broadcastExcept("chat.message", data, conn);
    * });
    */
@@ -268,15 +268,15 @@ export class RpcServer {
     }
     conn.meta.authenticated = true;
 
-    // Register global handlers — wrap to inject conn
+    // Register global handlers — wrap to inject conn as 1st arg
     for (const [method, handler] of this._globalHandlers) {
-      conn.register(method, (params) => handler(params, conn));
+      conn.register(method, (params) => handler(conn, params));
     }
 
-    // Register global subscribers — wrap to inject conn
+    // Register global subscribers — wrap to inject conn as 1st arg
     for (const [method, callbacks] of this._globalSubscribers) {
       for (const cb of callbacks) {
-        conn.subscribe(method, (data) => cb(data, conn));
+        conn.subscribe(method, (data) => cb(conn, data));
       }
     }
 

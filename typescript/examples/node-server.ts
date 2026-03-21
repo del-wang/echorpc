@@ -7,16 +7,16 @@ import { RpcServer } from "../src/server.js";
 
 const server = new RpcServer({ port: 9100 });
 
-// Register methods — handler receives (params, conn)
-server.register("echo", (params, conn) => params);
+// Register methods — handler receives (conn, params)
+server.register("echo", (conn, params) => params);
 server.register(
   "add",
-  (params: { a: number; b: number }, conn) => params.a + params.b,
+  (conn, params: { a: number; b: number }) => params.a + params.b,
 );
-server.register("server.time", (params, conn) => new Date().toISOString());
+server.register("server.time", (conn, params) => new Date().toISOString());
 
-// Server-level notification subscriber — receives (data, conn)
-server.subscribe("web.message", (data, conn) => {
+// Server-level notification subscriber — receives (conn, data)
+server.subscribe("web.message", (conn, data) => {
   console.log(`[notification] web.message from ${conn.meta.role}:`, data);
 });
 

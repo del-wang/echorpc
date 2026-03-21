@@ -35,18 +35,18 @@ describe("TS Server: Basic RPC", () => {
 
   beforeAll(async () => {
     server = new RpcServer({ port: 0 });
-    server.register("echo", (params, conn) => params);
-    server.register("add", (params: { a: number; b: number }, conn) => ({
+    server.register("echo", (conn, params) => params);
+    server.register("add", (conn, params: { a: number; b: number }) => ({
       sum: params.a + params.b,
     }));
-    server.register("server.time", (params, conn) => ({
+    server.register("server.time", (conn, params) => ({
       time: Date.now(),
       iso: new Date().toISOString(),
     }));
-    server.register("throws", (params, conn) => {
+    server.register("throws", (conn, params) => {
       throw new RpcError(ErrorCode.INVALID_PARAMS, "bad params");
     });
-    server.register("throws.generic", (params, conn) => {
+    server.register("throws.generic", (conn, params) => {
       throw new Error("something broke");
     });
     await server.start();
@@ -146,12 +146,12 @@ describe("TS Server: Handler conn", () => {
   beforeAll(async () => {
     server = new RpcServer({ port: 0 });
     // Handler uses conn to read caller's role
-    server.register("whoami", (params, conn) => ({
+    server.register("whoami", (conn, params) => ({
       role: conn.meta.role,
       authenticated: conn.meta.authenticated,
     }));
     // Handler uses conn to request back into the client
-    server.register("ask.client", async (params, conn) => {
+    server.register("ask.client", async (conn, params) => {
       const answer = await conn.request<string>("client.answer");
       return { answer };
     });
@@ -195,7 +195,7 @@ describe("TS Server: Bidirectional RPC", () => {
 
   beforeAll(async () => {
     server = new RpcServer({ port: 0 });
-    server.register("echo", (params, conn) => params);
+    server.register("echo", (conn, params) => params);
     await server.start();
     serverPort = server.address!.port;
   });
@@ -271,7 +271,7 @@ describe("TS Server: Pub/Sub", () => {
     // Use a fresh server so the subscriber is isolated
     const freshServer = new RpcServer({ port: 0 });
     const received: Array<{ data: unknown; role: unknown }> = [];
-    freshServer.subscribe("client.hello", (data, conn) => {
+    freshServer.subscribe("client.hello", (conn, data) => {
       received.push({ data, role: conn.meta.role });
     });
     await freshServer.start();
@@ -345,14 +345,14 @@ describe("TS Server: Batch requests", () => {
 
   beforeAll(async () => {
     server = new RpcServer({ port: 0 });
-    server.register("echo", (params, conn) => params);
-    server.register("add", (params: { a: number; b: number }, conn) => ({
+    server.register("echo", (conn, params) => params);
+    server.register("add", (conn, params: { a: number; b: number }) => ({
       sum: params.a + params.b,
     }));
-    server.register("fail", (params, conn) => {
+    server.register("fail", (conn, params) => {
       throw new RpcError(-100, "intentional error");
     });
-    server.register("slow_echo", async (params, conn) => {
+    server.register("slow_echo", async (conn, params) => {
       await new Promise((r) =>
         setTimeout(r, Math.random() * 50 + 10),
       );
@@ -551,7 +551,7 @@ describe("TS Server: Custom auth handler", () => {
         return { ok: true };
       },
     });
-    authServer.register("echo", (p, conn) => p);
+    authServer.register("echo", (conn, p) => p);
     await authServer.start();
     authPort = authServer.address!.port;
   });
@@ -597,7 +597,7 @@ describe("TS Server: Custom auth handler", () => {
 
   it("should accept all connections when no auth handler", async () => {
     const noAuthServer = new RpcServer({ port: 0 });
-    noAuthServer.register("echo", (p, conn) => p);
+    noAuthServer.register("echo", (conn, p) => p);
     await noAuthServer.start();
     const port = noAuthServer.address!.port;
 

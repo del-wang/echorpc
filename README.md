@@ -34,11 +34,11 @@ from viberpc import RpcServer
 server = RpcServer(port=9100, auth_handler=lambda p: True)
 
 @server.method("echo")
-def echo(params, conn):
+def echo(conn, params):
     return params
 
 @server.method("add")
-def add(params, conn):
+def add(conn, params):
     return params["a"] + params["b"]
 
 await server.start()
@@ -65,7 +65,7 @@ results = await client.batch_request([
 import { RpcServer } from "viberpc/server";
 
 const server = new RpcServer({ port: 9100 });
-server.register("echo", (params, conn) => params);
+server.register("echo", (conn, params) => params);
 await server.start();
 ```
 
@@ -126,11 +126,11 @@ If the handler throws, the server responds with **HTTP 401** and the WebSocket i
 
 ## Bidirectional RPC
 
-Server handlers receive `(params, conn)`. Use `conn` to call back into the client:
+Server handlers receive `(conn, params)`. Use `conn` to call back into the client:
 
 ```python
 @server.method("ask.client")
-async def ask(params, conn):
+async def ask(conn, params):
     answer = await conn.request("client.compute", params)
     return {"answer": answer}
 ```
@@ -146,7 +146,7 @@ rpc.register("client.compute", (params) => params.a * params.b);
 ```python
 # Server — subscribe to client notifications (receives conn)
 @server.subscription("chat.message")
-async def on_chat(data, conn):
+async def on_chat(conn, data):
     await server.broadcast_except("chat.message", data, exclude=conn)
 
 # Client — subscribe to server notifications
@@ -179,7 +179,7 @@ const results = await rpc.batchRequest([
 
 | Location | `register` handler | `subscribe` callback |
 | --- | --- | --- |
-| **Server** | `(params, conn) → result` | `(data, conn) → void` |
+| **Server** | `(conn, params) → result` | `(conn, data) → void` |
 | **Client** | `(params) → result` | `(data) → void` |
 
 `conn` is the `RpcConnection` of the caller — use it to read `conn.meta.role`, request back, or publish to that specific client.

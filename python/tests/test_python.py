@@ -17,11 +17,11 @@ async def server():
     """Start a test server on a random port."""
     srv = RpcServer(host="127.0.0.1", port=0, ping_interval=300)
 
-    # Register test methods — handlers now receive (params, conn)
-    srv.register("echo", lambda params, conn: params)
-    srv.register("add", lambda params, conn: {"sum": params["a"] + params["b"]})
+    # Register test methods — handlers receive (conn, params)
+    srv.register("echo", lambda conn, params: params)
+    srv.register("add", lambda conn, params: {"sum": params["a"] + params["b"]})
 
-    async def _fail(params, conn):
+    async def _fail(conn, params):
         raise RpcError(-100, "intentional error")
 
     srv.register("fail", _fail)
@@ -97,7 +97,7 @@ class TestHandlerConn:
 
     async def test_handler_receives_conn_meta(self, server):
         """Handler can read conn.meta to identify the caller."""
-        server.register("whoami", lambda params, conn: {
+        server.register("whoami", lambda conn, params: {
             "role": conn.meta.get("role"),
             "authenticated": conn.meta.get("authenticated"),
         })
@@ -115,7 +115,7 @@ class TestHandlerConn:
 
     async def test_handler_uses_conn_to_request_client(self, server):
         """Handler can use conn to call back into the client."""
-        async def ask_client(params, conn):
+        async def ask_client(conn, params):
             answer = await conn.request("client.answer")
             return {"answer": answer}
 
@@ -174,7 +174,7 @@ class TestPubSub:
     async def test_server_receives_notification_via_subscribe(self, server):
         """server.subscribe() registers a global notification listener with conn."""
         received = []
-        server.subscribe("client.hello", lambda data, conn: received.append({
+        server.subscribe("client.hello", lambda conn, data: received.append({
             "data": data,
             "role": conn.meta.get("role"),
         }))
@@ -222,11 +222,11 @@ class TestDecorators:
         srv = RpcServer(host="127.0.0.1", port=0, ping_interval=300)
 
         @srv.method("echo")
-        def echo(params, conn):
+        def echo(conn, params):
             return params
 
         @srv.method()  # uses function name
-        def add(params, conn):
+        def add(conn, params):
             return {"sum": params["a"] + params["b"]}
 
         await srv.start()
@@ -248,7 +248,7 @@ class TestDecorators:
         received = []
 
         @srv.subscription("chat.message")
-        def on_chat(data, conn):
+        def on_chat(conn, data):
             received.append({"data": data, "role": conn.meta.get("role")})
 
         await srv.start()
@@ -273,7 +273,7 @@ class TestDecorators:
         received = []
 
         @srv.subscription()  # uses function name "ping_event"
-        def ping_event(data, conn):
+        def ping_event(conn, data):
             received.append(data)
 
         await srv.start()
@@ -350,7 +350,7 @@ class TestBatchRequest:
     async def test_batch_request_preserves_order(self, server):
         """Results should be in request order, not response arrival order."""
         # Register a method that has variable delay
-        async def slow_echo(params, conn):
+        async def slow_echo(conn, params):
             import random
             await asyncio.sleep(random.uniform(0.01, 0.05))
             return params
@@ -408,7 +408,7 @@ class TestAuth:
             host="127.0.0.1", port=0, ping_interval=300,
             auth_handler=lambda params: {"ok": True} if params["token"] == "valid" else (_ for _ in ()).throw(Exception("bad")),
         )
-        srv.register("echo", lambda params, conn: params)
+        srv.register("echo", lambda conn, params: params)
         await srv.start()
         port = srv._server.sockets[0].getsockname()[1]
 
@@ -437,7 +437,7 @@ class TestAuth:
             host="127.0.0.1", port=0, ping_interval=300,
             auth_handler=auth,
         )
-        srv.register("echo", lambda params, conn: params)
+        srv.register("echo", lambda conn, params: params)
         await srv.start()
         port = srv._server.sockets[0].getsockname()[1]
 
@@ -455,7 +455,7 @@ class TestAuth:
     async def test_no_auth_handler_accepts_all(self):
         """No auth_handler → all connections accepted."""
         srv = RpcServer(host="127.0.0.1", port=0, ping_interval=300)
-        srv.register("echo", lambda params, conn: params)
+        srv.register("echo", lambda conn, params: params)
         await srv.start()
         port = srv._server.sockets[0].getsockname()[1]
 
@@ -485,7 +485,7 @@ class TestAuth:
             host="127.0.0.1", port=0, ping_interval=300,
             auth_handler=auth,
         )
-        srv.register("echo", lambda params, conn: params)
+        srv.register("echo", lambda conn, params: params)
         await srv.start()
         port = srv._server.sockets[0].getsockname()[1]
 

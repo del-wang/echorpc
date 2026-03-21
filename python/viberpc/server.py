@@ -15,7 +15,7 @@ from .connection import RpcConnection
 
 logger = logging.getLogger("viberpc")
 
-# Server-side handler types — receive conn (the calling connection) as 2nd arg
+# Server-side handler types — receive conn (the calling connection) as 1st arg
 ServerHandler = Callable[..., Awaitable[Any] | Any]
 ServerEventCallback = Callable[..., Awaitable[None] | None]
 OnConnectCallback = Callable[[RpcConnection], Awaitable[None] | None]
@@ -31,20 +31,20 @@ class RpcServer:
     - Bidirectional RPC + pub/sub notifications
     - Broadcast to role groups
 
-    Server-side handlers receive ``(params, conn)`` where ``conn`` is the
+    Server-side handlers receive ``(conn, params)`` where ``conn`` is the
     :class:`RpcConnection` that made the call / published the notification::
 
-        server.register("echo", lambda params, conn: params)
-        server.subscribe("chat.message", lambda data, conn: ...)
+        server.register("echo", lambda conn, params: params)
+        server.subscribe("chat.message", lambda conn, data: ...)
 
     Decorators are also available for cleaner registration::
 
         @server.method("echo")
-        def echo(params, conn):
+        def echo(conn, params):
             return params
 
         @server.subscription("chat.message")
-        async def on_chat(data, conn):
+        async def on_chat(conn, data):
             await server.broadcast_except("chat.message", data, exclude=conn)
     """
 
@@ -95,12 +95,12 @@ class RpcServer:
     # ── RPC Registration ─────────────────────────────────────────────────
 
     def register(self, method: str, handler: ServerHandler) -> None:
-        """Register a global RPC method. Handler signature: ``(params, conn)``.
+        """Register a global RPC method. Handler signature: ``(conn, params)``.
 
         ``conn`` is the :class:`RpcConnection` that made the call, allowing
         you to call/publish back to that specific client::
 
-            server.register("greet", lambda params, conn: f"hello {conn.meta['role']}")
+            server.register("greet", lambda conn, params: f"hello {conn.meta['role']}")
         """
         self._global_handlers[method] = handler
 
@@ -111,12 +111,12 @@ class RpcServer:
         """Decorator to register an RPC method::
 
             @server.method("echo")
-            def echo(params, conn):
+            def echo(conn, params):
                 return params
 
             # Or use function name:
             @server.method()
-            def echo(params, conn):
+            def echo(conn, params):
                 return params
         """
         def decorator(fn: ServerHandler) -> ServerHandler:
@@ -128,9 +128,9 @@ class RpcServer:
     # ── Pub/Sub Registration ─────────────────────────────────────────────
 
     def subscribe(self, method: str, callback: ServerEventCallback) -> None:
-        """Subscribe to notifications from clients. Callback: ``(data, conn)``::
+        """Subscribe to notifications from clients. Callback: ``(conn, data)``::
 
-            server.subscribe("chat.message", lambda data, conn: ...)
+            server.subscribe("chat.message", lambda conn, data: ...)
         """
         self._global_subscribers.setdefault(method, []).append(callback)
 
@@ -143,12 +143,12 @@ class RpcServer:
         """Decorator to register a notification subscriber::
 
             @server.subscription("chat.message")
-            async def on_chat(data, conn):
+            async def on_chat(conn, data):
                 await server.broadcast_except("chat.message", data, exclude=conn)
 
             # Or use function name:
             @server.subscription()
-            async def chat_message(data, conn):
+            async def chat_message(conn, data):
                 ...
         """
         def decorator(fn: ServerEventCallback) -> ServerEventCallback:
@@ -228,14 +228,14 @@ class RpcServer:
             conn.meta["client_id"] = qs.get("client_id", [""])[0]
             conn.meta["authenticated"] = True
 
-        # Register global handlers — wrap to inject conn
+        # Register global handlers — wrap to inject conn as 1st arg
         for method, handler in self._global_handlers.items():
-            conn.register(method, lambda params, _h=handler, _c=conn: _h(params, _c))
+            conn.register(method, lambda params, _h=handler, _c=conn: _h(_c, params))
 
-        # Register global subscribers — wrap to inject conn
+        # Register global subscribers — wrap to inject conn as 1st arg
         for method, callbacks in self._global_subscribers.items():
             for cb in callbacks:
-                conn.subscribe(method, lambda data, _cb=cb, _c=conn: _cb(data, _c))
+                conn.subscribe(method, lambda data, _cb=cb, _c=conn: _cb(_c, data))
 
         self._connections.add(conn)
 
