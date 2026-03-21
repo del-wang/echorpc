@@ -44,7 +44,7 @@ export interface ServerOptions {
   host?: string;
   /** Port to listen on (default: 9100) */
   port?: number;
-  /** Auth handler called on auth.login */
+  /** Auth handler called during WebSocket upgrade handshake (validates URL query params) */
   authHandler?: AuthHandler;
   /** RPC call timeout in ms (default: 30000) */
   timeout?: number;
@@ -82,16 +82,51 @@ export class RpcServer {
   async start(): Promise<void> {
     // Dynamic import so the module stays loadable in environments without `ws`
     const { WebSocketServer } = await import("ws");
-    this._wss = new WebSocketServer({ host: this.host, port: this.port });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wssOpts: any = { host: this.host, port: this.port };
+
+    if (this.authHandler) {
+      wssOpts.verifyClient = (
+        info: { req: import("http").IncomingMessage },
+        done: (
+          result: boolean,
+          code?: number,
+          message?: string,
+        ) => void,
+      ) => {
+        const url = new URL(info.req.url ?? "/", `http://${info.req.headers.host}`);
+        const token = url.searchParams.get("token") ?? "";
+        const role = url.searchParams.get("role") ?? "web";
+        const clientId = url.searchParams.get("client_id") ?? "";
+        const authParams = { token, role, client_id: clientId };
+
+        Promise.resolve()
+          .then(() => this.authHandler!(authParams))
+          .then(() => {
+            // Stash metadata on the request for _handleConnection
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (info.req as any)._viberpcMeta = { token, role, client_id: clientId };
+            done(true);
+          })
+          .catch(() => {
+            done(false, 401, "Unauthorized");
+          });
+      };
+    }
+
+    this._wss = new WebSocketServer(wssOpts);
 
     return new Promise<void>((resolve) => {
       this._wss.on("listening", () => {
         resolve();
       });
 
-      this._wss.on("connection", (ws: import("ws").WebSocket) => {
-        this._handleConnection(ws);
-      });
+      this._wss.on(
+        "connection",
+        (ws: import("ws").WebSocket, req: import("http").IncomingMessage) => {
+          this._handleConnection(ws, req);
+        },
+      );
     });
   }
 
@@ -210,10 +245,28 @@ export class RpcServer {
 
   // ── Internal ─────────────────────────────────────────────────────────
 
-  private async _handleConnection(ws: import("ws").WebSocket): Promise<void> {
+  private async _handleConnection(
+    ws: import("ws").WebSocket,
+    req: import("http").IncomingMessage,
+  ): Promise<void> {
     // ws package's WebSocket satisfies IWebSocket via duck typing
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const conn = new RpcConnection(ws as any, this.timeout, this.pingInterval);
+
+    // Read metadata stashed by verifyClient, or parse from URL
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stashedMeta = (req as any)._viberpcMeta;
+    if (stashedMeta) {
+      conn.meta.token = stashedMeta.token;
+      conn.meta.role = stashedMeta.role;
+      conn.meta.client_id = stashedMeta.client_id;
+    } else {
+      const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+      conn.meta.token = url.searchParams.get("token") ?? "";
+      conn.meta.role = url.searchParams.get("role") ?? "web";
+      conn.meta.client_id = url.searchParams.get("client_id") ?? "";
+    }
+    conn.meta.authenticated = true;
 
     // Register global handlers — wrap to inject conn
     for (const [method, handler] of this._globalHandlers) {
@@ -226,11 +279,6 @@ export class RpcServer {
         conn.subscribe(method, (data) => cb(data, conn));
       }
     }
-
-    // Built-in auth
-    conn.register("auth.login", (params) =>
-      this._doAuth(conn, params as Record<string, unknown>),
-    );
 
     this._connections.add(conn);
 
@@ -255,22 +303,5 @@ export class RpcServer {
         }
       }
     }
-  }
-
-  private async _doAuth(
-    conn: RpcConnection,
-    params: Record<string, unknown>,
-  ): Promise<unknown> {
-    let result: unknown = { ok: true };
-    if (this.authHandler) {
-      result = await this.authHandler(params);
-    }
-
-    conn.meta.token = params.token ?? "";
-    conn.meta.role = params.role ?? "web";
-    conn.meta.client_id = params.client_id ?? "";
-    conn.meta.authenticated = true;
-
-    return result;
   }
 }

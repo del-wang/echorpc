@@ -397,3 +397,107 @@ class TestMultipleWebClients:
         for c, t in zip(clients, tasks):
             await c.disconnect()
             t.cancel()
+
+
+class TestAuth:
+    """Test WebSocket-level authentication via HTTP upgrade handshake."""
+
+    async def test_valid_token_connects(self):
+        """Valid token → connection succeeds."""
+        srv = RpcServer(
+            host="127.0.0.1", port=0, ping_interval=300,
+            auth_handler=lambda params: {"ok": True} if params["token"] == "valid" else (_ for _ in ()).throw(Exception("bad")),
+        )
+        srv.register("echo", lambda params, conn: params)
+        await srv.start()
+        port = srv._server.sockets[0].getsockname()[1]
+
+        client = RpcClient(
+            f"ws://127.0.0.1:{port}", token="valid", role="web",
+            auto_reconnect=False, ping_interval=300,
+        )
+        task = asyncio.create_task(client.connect())
+        await client.wait_connected()
+
+        result = await client.request("echo", {"x": 1})
+        assert result == {"x": 1}
+
+        await client.disconnect()
+        task.cancel()
+        await srv.stop()
+
+    async def test_invalid_token_rejected(self):
+        """Invalid token → connection rejected with HTTP 401, never established."""
+        def auth(params):
+            if params["token"] != "valid":
+                raise Exception("invalid token")
+            return {"ok": True}
+
+        srv = RpcServer(
+            host="127.0.0.1", port=0, ping_interval=300,
+            auth_handler=auth,
+        )
+        srv.register("echo", lambda params, conn: params)
+        await srv.start()
+        port = srv._server.sockets[0].getsockname()[1]
+
+        client = RpcClient(
+            f"ws://127.0.0.1:{port}", token="wrong", role="web",
+            auto_reconnect=False, ping_interval=300,
+        )
+        # connect() should return (not hang) because auth fails with 401
+        await client.connect()
+        assert not client.connected
+        assert len(srv.get_connections()) == 0
+
+        await srv.stop()
+
+    async def test_no_auth_handler_accepts_all(self):
+        """No auth_handler → all connections accepted."""
+        srv = RpcServer(host="127.0.0.1", port=0, ping_interval=300)
+        srv.register("echo", lambda params, conn: params)
+        await srv.start()
+        port = srv._server.sockets[0].getsockname()[1]
+
+        client = RpcClient(
+            f"ws://127.0.0.1:{port}", token="anything", role="web",
+            auto_reconnect=False, ping_interval=300,
+        )
+        task = asyncio.create_task(client.connect())
+        await client.wait_connected()
+        assert client.connected
+
+        result = await client.request("echo", "ok")
+        assert result == "ok"
+
+        await client.disconnect()
+        task.cancel()
+        await srv.stop()
+
+    async def test_unauthenticated_cannot_call_methods(self):
+        """With auth_handler, invalid token → no RPC possible."""
+        def auth(params):
+            if params["token"] != "valid":
+                raise Exception("nope")
+            return {"ok": True}
+
+        srv = RpcServer(
+            host="127.0.0.1", port=0, ping_interval=300,
+            auth_handler=auth,
+        )
+        srv.register("echo", lambda params, conn: params)
+        await srv.start()
+        port = srv._server.sockets[0].getsockname()[1]
+
+        # Try to connect with wrong token — should fail at upgrade
+        client = RpcClient(
+            f"ws://127.0.0.1:{port}", token="wrong", role="web",
+            auto_reconnect=False, ping_interval=300,
+        )
+        await client.connect()
+        assert not client.connected
+
+        # Verify server has no connections
+        assert len(srv.get_connections()) == 0
+
+        await srv.stop()

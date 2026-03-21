@@ -220,6 +220,8 @@ describe("TS Server: Bidirectional RPC", () => {
   });
 
   it("should request client with params and get result", async () => {
+    // Small settle so previous test's server-side connection is cleaned up
+    await new Promise((r) => setTimeout(r, 50));
     client = createClient("node");
     client.register(
       "client.add",
@@ -228,7 +230,8 @@ describe("TS Server: Bidirectional RPC", () => {
     client.connect();
     await client.waitConnected(5000);
 
-    const conn = server.getConnections("node")[0];
+    const conns = server.getConnections("node");
+    const conn = conns[conns.length - 1];
     const result = await conn.request<number>("client.add", { a: 7, b: 8 });
     expect(result).toBe(15);
   });
@@ -572,7 +575,7 @@ describe("TS Server: Custom auth handler", () => {
     client.disconnect();
   });
 
-  it("should reject invalid token", async () => {
+  it("should reject invalid token (HTTP 401, no WS connection)", async () => {
     let authFailed = false;
     const client = new RpcClient(`ws://127.0.0.1:${authPort}`, {
       token: "wrong-token",
@@ -587,6 +590,45 @@ describe("TS Server: Custom auth handler", () => {
     await new Promise((r) => setTimeout(r, 500));
     expect(authFailed).toBe(true);
     expect(client.connected).toBe(false);
+    // Server should have zero connections from this client
+    expect(authServer.getConnections().length).toBe(0);
+    client.disconnect();
+  });
+
+  it("should accept all connections when no auth handler", async () => {
+    const noAuthServer = new RpcServer({ port: 0 });
+    noAuthServer.register("echo", (p, conn) => p);
+    await noAuthServer.start();
+    const port = noAuthServer.address!.port;
+
+    const client = new RpcClient(`ws://127.0.0.1:${port}`, {
+      token: "anything",
+      autoReconnect: false,
+      pingInterval: 300_000,
+      WebSocket: WS,
+    });
+    client.connect();
+    await client.waitConnected(5000);
+    expect(client.connected).toBe(true);
+    const result = await client.request("echo", "ok");
+    expect(result).toBe("ok");
+    client.disconnect();
+    await new Promise((r) => setTimeout(r, 100));
+    await noAuthServer.stop();
+  });
+
+  it("unauthenticated client cannot call methods", async () => {
+    // With auth handler, wrong token → no WS, no RPC possible
+    const client = new RpcClient(`ws://127.0.0.1:${authPort}`, {
+      token: "wrong-token",
+      autoReconnect: false,
+      pingInterval: 300_000,
+      WebSocket: WS,
+    });
+    client.connect();
+    await new Promise((r) => setTimeout(r, 500));
+    expect(client.connected).toBe(false);
+    expect(authServer.getConnections().length).toBe(0);
     client.disconnect();
   });
 });

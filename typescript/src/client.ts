@@ -184,10 +184,18 @@ export class RpcClient {
 
   // ── Internal connect ──────────────────────────────────────────────────
 
+  private _buildUrl(): string {
+    const url = new URL(this.url);
+    if (this.opts.token) url.searchParams.set("token", this.opts.token);
+    if (this.opts.role) url.searchParams.set("role", this.opts.role);
+    if (this.opts.clientId) url.searchParams.set("client_id", this.opts.clientId);
+    return url.toString();
+  }
+
   private _doConnect(): void {
     const WS = resolveWebSocket(this.opts.WebSocket);
     try {
-      this.ws = new WS(this.url);
+      this.ws = new WS(this._buildUrl());
     } catch {
       this._scheduleReconnect();
       return;
@@ -200,7 +208,6 @@ export class RpcClient {
       try {
         const msg = JSON.parse(String(e.data));
         if (Array.isArray(msg)) {
-          // Batch response — dispatch each individually
           for (const item of msg) {
             this._dispatch(item);
           }
@@ -213,24 +220,10 @@ export class RpcClient {
     };
   }
 
-  private async _onOpen(): Promise<void> {
+  private _onOpen(): void {
     this._connected = true;
     this.reconnectAttempt = 0;
     this._startPing();
-
-    if (this.opts.token) {
-      try {
-        await this.request("auth.login", {
-          token: this.opts.token,
-          role: this.opts.role,
-          client_id: this.opts.clientId,
-        });
-      } catch {
-        this.onAuthFailed?.();
-        this.disconnect();
-        return;
-      }
-    }
     this.onConnect?.();
   }
 
@@ -241,6 +234,15 @@ export class RpcClient {
     this._rejectAllPending(
       new RpcError(ErrorCode.NOT_CONNECTED, "disconnected"),
     );
+
+    // HTTP 401 during upgrade → WS close with code absent or specific codes
+    // ws package fires close with no prior open when upgrade fails
+    if (!wasConnected && this.opts.token) {
+      this.onAuthFailed?.();
+      // Don't reconnect on auth failure
+      return;
+    }
+
     if (wasConnected) this.onDisconnect?.();
     if (!this.intentionalClose && this.opts.autoReconnect) {
       this._scheduleReconnect();

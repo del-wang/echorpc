@@ -83,9 +83,9 @@ export type WebSocketConstructor = new (
 // ── Options ─────────────────────────────────────────────────────────────────
 
 export interface ClientOptions {
-  /** Auth token for auth.login handshake */
+  /** Auth token sent as URL query param during WebSocket upgrade */
   token?: string;
-  /** Client role sent during auth (default: "web") */
+  /** Client role sent as URL query param (default: "web") */
   role?: string;
   /** Arbitrary client ID */
   clientId?: string;

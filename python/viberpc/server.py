@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any, Callable, Awaitable
+from urllib.parse import urlparse, parse_qs
 
 import websockets
 from websockets.asyncio.server import ServerConnection
+from websockets.http11 import Response
 
 from .connection import RpcConnection
 
@@ -75,6 +77,7 @@ class RpcServer:
             self._handle_connection,
             self.host,
             self.port,
+            process_request=self._process_request if self.auth_handler else None,
         )
         logger.info("JSON-RPC server listening on ws://%s:%d", self.host, self.port)
 
@@ -188,8 +191,42 @@ class RpcServer:
 
     # ── Internal ─────────────────────────────────────────────────────────
 
+    async def _process_request(self, connection: ServerConnection, request: Any) -> Response | None:
+        """Validate auth during the HTTP upgrade handshake."""
+        parsed = urlparse(request.path)
+        qs = parse_qs(parsed.query)
+        token = qs.get("token", [""])[0]
+        role = qs.get("role", ["web"])[0]
+        client_id = qs.get("client_id", [""])[0]
+
+        auth_params = {"token": token, "role": role, "client_id": client_id}
+        try:
+            result = self.auth_handler(auth_params)
+            if asyncio.iscoroutine(result):
+                result = await result
+        except Exception:
+            return connection.respond(401, "Unauthorized\n")
+
+        # Stash metadata on the raw connection for _handle_connection to pick up
+        connection._viberpc_meta = {"token": token, "role": role, "client_id": client_id}
+        return None
+
     async def _handle_connection(self, ws: ServerConnection) -> None:
         conn = RpcConnection(ws, timeout=self.timeout, ping_interval=self.ping_interval)
+
+        # Read metadata stashed by process_request (or set defaults)
+        meta = getattr(ws, "_viberpc_meta", None)
+        if meta:
+            conn.meta.update(meta)
+            conn.meta["authenticated"] = True
+        else:
+            # No auth_handler — parse query params for metadata only
+            parsed = urlparse(ws.request.path)
+            qs = parse_qs(parsed.query)
+            conn.meta["token"] = qs.get("token", [""])[0]
+            conn.meta["role"] = qs.get("role", ["web"])[0]
+            conn.meta["client_id"] = qs.get("client_id", [""])[0]
+            conn.meta["authenticated"] = True
 
         # Register global handlers — wrap to inject conn
         for method, handler in self._global_handlers.items():
@@ -199,9 +236,6 @@ class RpcServer:
         for method, callbacks in self._global_subscribers.items():
             for cb in callbacks:
                 conn.subscribe(method, lambda data, _cb=cb, _c=conn: _cb(data, _c))
-
-        # Built-in auth
-        conn.register("auth.login", lambda params: self._do_auth(conn, params))
 
         self._connections.add(conn)
 
@@ -224,23 +258,3 @@ class RpcServer:
                         await result
                 except Exception:
                     logger.exception("on_disconnect callback error")
-
-    async def _do_auth(self, conn: RpcConnection, params: dict) -> dict:
-        if self.auth_handler:
-            result = self.auth_handler(params)
-            if asyncio.iscoroutine(result):
-                result = await result
-        else:
-            result = {"ok": True}
-
-        token = params.get("token", "")
-        role = params.get("role", "web")
-        client_id = params.get("client_id", "")
-
-        conn.meta["token"] = token
-        conn.meta["role"] = role
-        conn.meta["client_id"] = client_id
-        conn.meta["authenticated"] = True
-
-        logger.info("client authenticated: role=%s client_id=%s", role, client_id)
-        return result

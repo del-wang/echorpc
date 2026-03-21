@@ -18,7 +18,7 @@ logger = logging.getLogger("demo")
 server = RpcServer(
     host="0.0.0.0",
     port=9100,
-    auth_handler=lambda params: {"ok": True},  # accept all tokens in demo
+    auth_handler=lambda params: {"ok": True},  # accept all tokens (validated during HTTP upgrade)
 )
 
 

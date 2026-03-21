@@ -2,8 +2,8 @@
  * Integration tests for the universal viberpc client.
  * Requires the Python server running on port 9100.
  *
- * Start: cd python/examples && python demo_server.py
- * Run:   cd ts && npx vitest run ts/tests/test_client.test.ts
+ * Start: cd python && python examples/demo_server.py
+ * Run:   cd typescript && npx vitest run tests/test_client.test.ts
  */
 
 import { describe, it, expect, afterEach } from "vitest";

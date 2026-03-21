@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any, Callable, Awaitable
+from urllib.parse import urlencode, urlparse, urlunparse
 
 import websockets
+from websockets.exceptions import InvalidStatus
 
 from .core import (
     RpcError, ErrorCode, DEFAULT_TIMEOUT, DEFAULT_PING_INTERVAL,
@@ -57,6 +59,23 @@ class RpcClient:
 
         self.on_connect: Callable[[], Any] | None = None
         self.on_disconnect: Callable[[], Any] | None = None
+
+    def _build_url(self) -> str:
+        """Append auth credentials as URL query parameters."""
+        params = {}
+        if self.token:
+            params["token"] = self.token
+        if self.role:
+            params["role"] = self.role
+        if self.client_id:
+            params["client_id"] = self.client_id
+        if not params:
+            return self.url
+        parsed = urlparse(self.url)
+        # Preserve any existing query string
+        sep = "&" if parsed.query else ""
+        new_query = parsed.query + sep + urlencode(params) if parsed.query else urlencode(params)
+        return urlunparse(parsed._replace(query=new_query))
 
     @property
     def connected(self) -> bool:
@@ -126,9 +145,10 @@ class RpcClient:
     async def connect(self) -> None:
         """Connect with auto-reconnect loop. Blocks until closed."""
         self._closed = False
+        url = self._build_url()
         while not self._closed:
             try:
-                ws = await websockets.connect(self.url)
+                ws = await websockets.connect(url)
                 self._conn = RpcConnection(ws, timeout=self.timeout, ping_interval=self.ping_interval)
                 self._reconnect_delay = INITIAL_RECONNECT_DELAY
 
@@ -139,33 +159,17 @@ class RpcClient:
                     for cb in cbs:
                         self._conn.subscribe(method, cb)
 
-                # Authenticate
-                if self.token:
-                    auth_params = {"token": self.token, "role": self.role}
-                    if self.client_id:
-                        auth_params["client_id"] = self.client_id
-                    # Start serve() in background to handle auth response
-                    serve_task = asyncio.create_task(self._conn.serve())
-                    try:
-                        await self._conn.request("auth.login", auth_params)
-                    except Exception as e:
-                        logger.error("auth failed: %s", e)
-                        serve_task.cancel()
-                        await self._conn.close()
-                        raise
+                self._connected_event.set()
+                if self.on_connect:
+                    self.on_connect()
+                logger.info("connected to %s (role=%s)", self.url, self.role)
+                await self._conn.serve()
 
-                    self._connected_event.set()
-                    if self.on_connect:
-                        self.on_connect()
-                    logger.info("connected to %s (role=%s)", self.url, self.role)
-                    await serve_task
-                else:
-                    self._connected_event.set()
-                    if self.on_connect:
-                        self.on_connect()
-                    logger.info("connected to %s", self.url)
-                    await self._conn.serve()
-
+            except InvalidStatus as e:
+                if e.response.status_code == 401:
+                    logger.error("auth failed: HTTP 401")
+                    break
+                logger.warning("connection lost: %s", e)
             except Exception as e:
                 logger.warning("connection lost: %s", e)
             finally:

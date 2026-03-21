@@ -275,7 +275,7 @@
         rpc = new RpcClient(url, {
           token,
           role: "web",
-          clientId: `web-${Date.now()}`,
+          clientId: `web-${Date.now()}`,  // Auth credentials sent as URL query params during upgrade
         });
 
         rpc.onConnect = () => {
