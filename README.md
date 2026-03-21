@@ -1,90 +1,48 @@
 # VibeRPC
 
-基于 WebSocket 的 JSON-RPC 2.0 全栈实现，包含 Python (server) 和 TypeScript (universal client) 两端。
+Bidirectional WebSocket JSON-RPC 2.0 for Python and TypeScript. One protocol, both directions, batch support, pub/sub — works in Node.js and browsers.
 
 ## Features
 
-- JSON-RPC 2.0 strict compliance
-- **Universal client** — 同一份代码在 Node.js / 浏览器运行
-- Bidirectional RPC (`register` / `request`)
-- Bidirectional notifications (`subscribe` / `publish`)
-- **Batch requests** — `batchRequest` 批量调用，结果按请求顺序返回
-- **Server handlers receive `conn`** — the calling connection, for requesting/publishing back
-- **Python decorators** — `@server.method()` and `@server.subscription()` for clean registration
-- Auto-reconnect with exponential backoff
-- Heartbeat ping/pong
-- Token + role authentication
-- Broadcast to connection groups
-- Request timeout
-- Typed errors with JSON-RPC 2.0 standard error codes
+- **JSON-RPC 2.0** compliant (requests, notifications, batch, error codes)
+- **Bidirectional RPC** — server can call client methods and vice versa
+- **Pub/Sub** — `publish` / `subscribe` notifications in both directions
+- **Batch requests** — send multiple calls in one frame, results in order
+- **Upgrade-level auth** — token validated during HTTP handshake, rejected connections never open
+- **Universal TS client** — same code runs in Node.js and browsers
+- **Auto-reconnect** with exponential backoff
+- **Heartbeat** ping/pong
+- **Broadcast** to all or role-filtered connections
 
-## Package Structure
+## Install
 
-```
-viberpc/
-├── python/                    # Python server + client
-│   ├── viberpc/
-│   │   ├── __init__.py
-│   │   ├── core.py            # Types, error codes, constants
-│   │   ├── connection.py      # Single WS connection handler
-│   │   ├── server.py          # WS server
-│   │   └── client.py          # Auto-reconnect client
-│   ├── pyproject.toml
-│   └── requirements.txt
-├── typescript/                # Universal TypeScript client + server
-│   ├── src/
-│   │   ├── core.ts            # Types, error codes, WS abstraction
-│   │   ├── connection.ts      # Server-side per-connection handler
-│   │   ├── server.ts          # WS server
-│   │   ├── client.ts          # Universal RpcClient
-│   │   └── index.ts           # Exports
-│   ├── package.json
-│   └── tsconfig.json
-└── README.md
+```bash
+# Python
+cd python && pip install -e .
+
+# TypeScript
+cd typescript && npm install
 ```
 
-## API Reference
+## Quick Start
 
 ### Python Server
 
 ```python
 from viberpc import RpcServer
 
-server = RpcServer(host="0.0.0.0", port=9100)
+server = RpcServer(port=9100, auth_handler=lambda p: True)
 
-# Register with decorator — handler receives (params, conn)
 @server.method("echo")
 def echo(params, conn):
     return params
 
 @server.method("add")
 def add(params, conn):
-    return {"sum": params["a"] + params["b"]}
+    return params["a"] + params["b"]
 
-# Or register inline
-server.register("greet", lambda params, conn: f"hello {conn.meta['role']}")
-
-# Subscribe to client notifications — callback receives (data, conn)
-@server.subscription("chat.message")
-async def on_chat(data, conn):
-    # conn is the connection that published — broadcast to others
-    await server.broadcast_except("chat.message", data, exclude=conn)
-
-# Or inline
-server.subscribe("user.typing", lambda data, conn: print(f"{conn.meta['role']} is typing"))
-
-# Lifecycle hooks
-server.on_connect(lambda conn: print(f"connected: {conn.meta}"))
-server.on_disconnect(lambda conn: print(f"disconnected: {conn.meta}"))
-
-await server.serve_forever()
+await server.start()
 ```
-
-**Server handler `conn`**: Every handler registered via `server.register()` or `@server.method()` receives the calling `RpcConnection` as the second argument. Use it to:
-
-- Read caller info: `conn.meta['role']`, `conn.meta['client_id']`
-- Request back: `await conn.request("client.method", params)`
-- Publish to caller: `await conn.publish("notification.name", data)`
 
 ### Python Client
 
@@ -92,123 +50,181 @@ await server.serve_forever()
 from viberpc import RpcClient
 
 client = RpcClient("ws://localhost:9100", token="secret", role="node")
-client.register("node.method", handler)   # no conn — only one server
-client.subscribe("notification_name", callback)
 await client.connect()
-result = await client.request("echo", {"msg": "hi"})
 
-# Batch requests — results in request order
+result = await client.request("echo", {"msg": "hi"})
 results = await client.batch_request([
-    ("echo", {"msg": "hi"}),
+    ("echo", {"x": 1}),
     ("add", {"a": 1, "b": 2}),
 ])
 ```
 
 ### TypeScript Server (Node.js)
 
-```typescript
+```ts
 import { RpcServer } from "viberpc/server";
 
 const server = new RpcServer({ port: 9100 });
-
-// Handler receives (params, conn) — conn is the calling RpcConnection
 server.register("echo", (params, conn) => params);
-
-server.register("greet", (params, conn) => {
-  return `hello ${conn.meta.role}`;
-});
-
-// Handler can request back into the client via conn
-server.register("ask.client", async (params, conn) => {
-  const answer = await conn.request("client.compute", params);
-  return { answer };
-});
-
-// Server-level notification subscriber — receives (data, conn)
-server.subscribe("chat.message", (data, conn) => {
-  server.broadcastExcept("chat.message", data, conn);
-});
-
-server.onConnect((conn) => console.log("connected:", conn.meta.role));
-
 await server.start();
 ```
 
 ### TypeScript Client (Node.js)
 
-```typescript
+```ts
 import WebSocket from "ws";
 import { RpcClient } from "viberpc";
 
 const rpc = new RpcClient("ws://localhost:9100", {
   token: "secret",
   role: "node",
-  WebSocket: WebSocket as any, // pass ws implementation
+  WebSocket: WebSocket as any,
 });
 
-rpc.register("node.method", handler); // no conn — only one server
-rpc.subscribe("notification_name", callback);
 rpc.connect();
 await rpc.waitConnected();
-
 const result = await rpc.request("echo", { msg: "hi" });
-rpc.publish("notification_name", { key: "value" });
-
-// Batch requests — results in request order
-const results = await rpc.batchRequest([
-  ["echo", { msg: "hi" }],
-  ["add", { a: 1, b: 2 }],
-]);
 ```
 
 ### TypeScript Client (Browser)
 
-```typescript
+```ts
 import { RpcClient } from "viberpc";
 
-// Browser: no WebSocket option needed, uses native WebSocket
 const rpc = new RpcClient("ws://localhost:9100", {
   token: "secret",
   role: "web",
 });
-
 rpc.connect();
-await rpc.waitConnected();
-
-// Direct request to server
-const result = await rpc.request("echo", { msg: "hi" });
 ```
 
-## Handler Signature Summary
+## Authentication
 
-| Location                  | `register` handler         | `subscribe` callback   |
-| ------------------------- | -------------------------- | ---------------------- |
-| **Server** (Python/TS)    | `(params, conn) => result` | `(data, conn) => void` |
-| **Client** (Python/TS)    | `(params) => result`       | `(data) => void`       |
-| **Connection** (per-conn) | `(params) => result`       | `(data) => void`       |
+Auth happens at the **WebSocket upgrade handshake** — not after connection. Credentials are sent as URL query parameters (`?token=...&role=...&client_id=...`).
 
-`conn` is always the `RpcConnection` — the specific client that made the call or published the notification.
+On the server side, provide an `authHandler` / `auth_handler`:
+
+```python
+# Python — throw to reject
+server = RpcServer(
+    port=9100,
+    auth_handler=lambda p: verify_token(p["token"]),
+)
+```
+
+```ts
+// TypeScript — throw to reject
+const server = new RpcServer({
+  port: 9100,
+  authHandler: (params) => {
+    if (params.token !== "valid") throw new Error("unauthorized");
+  },
+});
+```
+
+If the handler throws, the server responds with **HTTP 401** and the WebSocket is never established. No `authHandler` means all connections are accepted.
+
+## Bidirectional RPC
+
+Server handlers receive `(params, conn)`. Use `conn` to call back into the client:
+
+```python
+@server.method("ask.client")
+async def ask(params, conn):
+    answer = await conn.request("client.compute", params)
+    return {"answer": answer}
+```
+
+Clients register methods the server can call:
+
+```ts
+rpc.register("client.compute", (params) => params.a * params.b);
+```
+
+## Pub/Sub
+
+```python
+# Server — subscribe to client notifications (receives conn)
+@server.subscription("chat.message")
+async def on_chat(data, conn):
+    await server.broadcast_except("chat.message", data, exclude=conn)
+
+# Client — subscribe to server notifications
+client.subscribe("chat.message", lambda data: print(data))
+
+# Publish from either side
+await client.publish("chat.message", {"text": "hello"})
+server.broadcast("chat.message", {"text": "hello"}, role="web")
+```
+
+## Batch Requests
+
+```python
+results = await client.batch_request([
+    ("echo", {"x": 1}),
+    ("add", {"a": 1, "b": 2}),
+    ("fail", None),
+])
+# results[2] is an RpcError instance
+```
+
+```ts
+const results = await rpc.batchRequest([
+  ["echo", { x: 1 }],
+  ["add", { a: 1, b: 2 }],
+]);
+```
+
+## Handler Signatures
+
+| Location | `register` handler | `subscribe` callback |
+| --- | --- | --- |
+| **Server** | `(params, conn) → result` | `(data, conn) → void` |
+| **Client** | `(params) → result` | `(data) → void` |
+
+`conn` is the `RpcConnection` of the caller — use it to read `conn.meta.role`, request back, or publish to that specific client.
 
 ## Error Codes
 
-| Code     | Name             | Description                             |
-| -------- | ---------------- | --------------------------------------- |
-| -32700   | Parse error      | Invalid JSON                            |
-| -32600   | Invalid Request  | Not a valid JSON-RPC 2.0 request        |
-| -32601   | Method not found | Method does not exist                   |
-| -32602   | Invalid params   | Invalid method parameters               |
-| -32603   | Internal error   | Internal JSON-RPC error                 |
-| -32001   | Not connected    | WebSocket not connected                 |
-| -32002   | Timeout          | Request timed out                       |
-| -32003   | Auth failed      | Authentication failed                   |
+| Code | Name | Description |
+| --- | --- | --- |
+| -32700 | Parse error | Invalid JSON |
+| -32600 | Invalid Request | Not a valid JSON-RPC 2.0 request |
+| -32601 | Method not found | Method does not exist |
+| -32602 | Invalid params | Invalid method parameters |
+| -32603 | Internal error | Internal JSON-RPC error |
+| -32001 | Not connected | WebSocket not connected |
+| -32002 | Timeout | Request timed out |
+| -32003 | Auth failed | Authentication failed |
 
-Custom error codes use the JSON-RPC 2.0 server-reserved range (-32000 to -32099).
+## Project Structure
 
-## JSON-RPC 2.0 Compliance
+```
+python/
+  viberpc/        # server, client, connection, core
+  examples/       # demo_server.py
+  tests/          # pytest
 
-- All messages include `"jsonrpc": "2.0"`
-- Requests have `id` + `method` + optional `params`
-- Responses have `id` + either `result` or `error` (never both)
-- Notifications are requests without `id` (used for pub/sub)
-- Batch requests/responses follow the spec (array of messages)
-- Error objects contain `code` (integer) + `message` (string) + optional `data`
+typescript/
+  src/            # server, client, connection, core
+  examples/       # node-server, node-client, web demo
+  tests/          # vitest
+```
+
+## Development
+
+```bash
+# Python tests
+cd python && python -m pytest tests/ -v
+
+# TypeScript tests
+cd typescript && npx vitest run
+
+# Demo (start Python server, then connect TS clients)
+cd python && python examples/demo_server.py
+cd typescript && npx tsx examples/node-client.ts
+```
+
+## License
+
+MIT
