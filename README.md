@@ -1,6 +1,6 @@
 # VibeRPC
 
-Bidirectional WebSocket JSON-RPC 2.0 for Python and TypeScript. One protocol, both directions, batch support, pub/sub — works in Node.js and browsers.
+Bidirectional JSON-RPC 2.0 for TypeScript and Python — request, batch, pub/sub, auth, auto-reconnect.
 
 ## Features
 
@@ -14,198 +14,157 @@ Bidirectional WebSocket JSON-RPC 2.0 for Python and TypeScript. One protocol, bo
 - **Heartbeat** ping/pong
 - **Broadcast** to all or role-filtered connections
 
-## Install
+## Python
 
-```bash
-# Python
-cd python && pip install -e .
-
-# TypeScript
-cd typescript && npm install
-```
-
-## Quick Start
-
-### Python Server
+### Server
 
 ```python
-from viberpc import RpcServer
+from viberpc import RpcServer, WsServer
 
-server = RpcServer(port=9100, auth_handler=lambda p: True)
+# Auth handler: return to accept, raise to reject
+def auth(params):
+    if params["token"] != "secret":
+        raise Exception("denied")       # → client gets RpcError(AUTH_FAILED)
+    pass             # → accept, return value ignored
 
-@server.method("echo")
-def echo(conn, params):
-    return params
+ws = WsServer(port=9100, auth_handler=auth)
+server = RpcServer(ws)
 
+# Register methods — decorator or imperative
 @server.method("add")
 def add(conn, params):
-    return params["a"] + params["b"]
+    return {"sum": params["a"] + params["b"]}
 
-await server.start()
+@server.method()                         # name inferred from function: "multiply"
+def multiply(conn, params):
+    return {"result": params["a"] * params["b"]}
+
+server.register("echo", lambda conn, p: p)
+
+# Bidirectional: call client from server handler
+@server.method("ask.client")
+async def ask_client(conn, params):
+    return await conn.request("client.compute", params)
+
+# Pub/Sub
+@server.subscription("chat")
+async def on_chat(conn, data):
+    await server.broadcast("chat", data)
+
+await server.start()                     # server.address → ("0.0.0.0", 9100)
 ```
 
-### Python Client
+### Client
 
 ```python
-from viberpc import RpcClient
+from viberpc import RpcClient, WsClient
 
-client = RpcClient("ws://localhost:9100", token="secret", role="node")
-await client.connect()
+transport = WsClient("ws://localhost:9100", token="secret", role="node")
+client = RpcClient(transport)
 
-result = await client.request("echo", {"msg": "hi"})
-results = await client.batch_request([
-    ("echo", {"x": 1}),
-    ("add", {"a": 1, "b": 2}),
-])
+await client.connect()                   # raises RpcError(AUTH_FAILED) / RpcError(TIMEOUT)
+
+result = await client.request("add", {"a": 1, "b": 2})
+
+# Register methods the server can call back
+client.register("client.compute", lambda p: p["x"] * 2)
+
+# Pub/Sub
+client.subscribe("chat", lambda data: print(data))
+await client.publish("chat", {"text": "hello"})
+
+# Batch
+results = await client.batch_request([("add", {"a": 1, "b": 2}), ("add", {"a": 3, "b": 4})])
+
+await client.disconnect()
 ```
 
-### TypeScript Server (Node.js)
+## TypeScript
+
+### Server
 
 ```ts
-import { RpcServer } from "viberpc/server";
+import { RpcServer, WsServer, RpcError, ErrorCode } from "viberpc";
 
-const server = new RpcServer({ port: 9100 });
-server.register("echo", (conn, params) => params);
-await server.start();
+// Auth handler: return to accept, throw to reject
+const ws = new WsServer({
+  port: 9100,
+  authHandler: (params) => {
+    if (params.token !== "secret")
+      throw new RpcError(ErrorCode.AUTH_FAILED, "denied"); // → client gets RpcError(AUTH_FAILED)
+    return             // → accept, return value ignored
+  },
+});
+const server = new RpcServer(ws);
+
+server.register("add", (conn, p: { a: number; b: number }) => ({ sum: p.a + p.b }));
+
+// Bidirectional: call client from server handler
+server.register("ask.client", async (conn, p) => await conn.request("client.compute", p));
+
+// Pub/Sub
+server.subscribe("chat", (conn, data) => server.broadcast("chat", data));
+
+await server.start();                    // server.address → { host, port }
 ```
 
-### TypeScript Client (Node.js)
+### Client — Node.js
 
 ```ts
 import WebSocket from "ws";
-import { RpcClient } from "viberpc";
+import { RpcClient, WsClient } from "viberpc";
 
-const rpc = new RpcClient("ws://localhost:9100", {
-  token: "secret",
-  role: "node",
-  WebSocket: WebSocket as any,
+const transport = new WsClient("ws://localhost:9100", {
+  token: "secret", role: "node", WebSocket,
 });
+const client = new RpcClient(transport);
 
-rpc.connect();
-await rpc.waitConnected();
-const result = await rpc.request("echo", { msg: "hi" });
+await client.connect();                  // throws RpcError(AUTH_FAILED) / RpcError(TIMEOUT)
+
+const result = await client.request("add", { a: 1, b: 2 });
+
+// Register methods the server can call back
+client.register("client.compute", (p: { x: number }) => p.x * 2);
+
+// Pub/Sub
+client.subscribe("chat", (data) => console.log(data));
+client.publish("chat", { text: "hello" });
+
+// Batch
+const results = await client.batchRequest([["add", { a: 1, b: 2 }], ["add", { a: 3, b: 4 }]]);
+
+await client.disconnect();
 ```
 
-### TypeScript Client (Browser)
+### Client — Browser
 
 ```ts
-import { RpcClient } from "viberpc";
+import { RpcClient, WsClient } from "viberpc";
 
-const rpc = new RpcClient("ws://localhost:9100", {
-  token: "secret",
-  role: "web",
-});
-rpc.connect();
+// Browser has native WebSocket — no import needed
+const transport = new WsClient("ws://localhost:9100", { token: "secret", role: "web" });
+const client = new RpcClient(transport);
+await client.connect();
 ```
-
-## Authentication
-
-Auth happens at the **WebSocket upgrade handshake** — not after connection. Credentials are sent as URL query parameters (`?token=...&role=...&client_id=...`).
-
-On the server side, provide an `authHandler` / `auth_handler`:
-
-```python
-# Python — throw to reject
-server = RpcServer(
-    port=9100,
-    auth_handler=lambda p: verify_token(p["token"]),
-)
-```
-
-```ts
-// TypeScript — throw to reject
-const server = new RpcServer({
-  port: 9100,
-  authHandler: (params) => {
-    if (params.token !== "valid") throw new Error("unauthorized");
-  },
-});
-```
-
-If the handler throws, the server responds with **HTTP 401** and the WebSocket is never established. No `authHandler` means all connections are accepted.
-
-## Bidirectional RPC
-
-Server handlers receive `(conn, params)`. Use `conn` to call back into the client:
-
-```python
-@server.method("ask.client")
-async def ask(conn, params):
-    answer = await conn.request("client.compute", params)
-    return {"answer": answer}
-```
-
-Clients register methods the server can call:
-
-```ts
-rpc.register("client.compute", (params) => params.a * params.b);
-```
-
-## Pub/Sub
-
-```python
-# Server — subscribe to client notifications (receives conn)
-@server.subscription("chat.message")
-async def on_chat(conn, data):
-    await server.broadcast_except("chat.message", data, exclude=conn)
-
-# Client — subscribe to server notifications
-client.subscribe("chat.message", lambda data: print(data))
-
-# Publish from either side
-await client.publish("chat.message", {"text": "hello"})
-server.broadcast("chat.message", {"text": "hello"}, role="web")
-```
-
-## Batch Requests
-
-```python
-results = await client.batch_request([
-    ("echo", {"x": 1}),
-    ("add", {"a": 1, "b": 2}),
-    ("fail", None),
-])
-# results[2] is an RpcError instance
-```
-
-```ts
-const results = await rpc.batchRequest([
-  ["echo", { x: 1 }],
-  ["add", { a: 1, b: 2 }],
-]);
-```
-
-## Handler Signatures
-
-| Location | `register` handler | `subscribe` callback |
-| --- | --- | --- |
-| **Server** | `(conn, params) → result` | `(conn, data) → void` |
-| **Client** | `(params) → result` | `(data) → void` |
-
-`conn` is the `RpcConnection` of the caller — use it to read `conn.meta.role`, request back, or publish to that specific client.
 
 ## Error Codes
 
-| Code | Name | Description |
+| Code | Name | Meaning |
 | --- | --- | --- |
 | -32700 | Parse error | Invalid JSON |
-| -32600 | Invalid Request | Not a valid JSON-RPC 2.0 request |
-| -32601 | Method not found | Method does not exist |
-| -32602 | Invalid params | Invalid method parameters |
-| -32603 | Internal error | Internal JSON-RPC error |
-| -32001 | Not connected | WebSocket not connected |
+| -32600 | Invalid Request | Malformed JSON-RPC |
+| -32601 | Method not found | No such method |
+| -32602 | Invalid params | Bad parameters |
+| -32603 | Internal error | Handler threw |
+| -32001 | Not connected | No active connection |
 | -32002 | Timeout | Request timed out |
-| -32003 | Auth failed | Authentication failed |
+| -32003 | Auth failed | Authentication rejected |
 
-
-## Development
+## Tests
 
 ```bash
-# Python tests
+cd typescript && npm test
 cd python && python -m pytest tests/ -v
-
-# TypeScript tests
-cd typescript && npm run vitest run
 ```
 
 ## License
