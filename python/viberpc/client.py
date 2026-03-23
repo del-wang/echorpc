@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any, Callable
 
-from .core import RpcError, ErrorCode, DEFAULT_TIMEOUT
-from .router import MessageRouter, Handler, EventCallback
+from .core import DEFAULT_CONNECT_TIMEOUT, DEFAULT_REQUEST_TIMEOUT, ErrorCode, RpcError
+from .router import EventCallback, Handler, MessageRouter
 
 logger = logging.getLogger("viberpc")
 
@@ -19,7 +18,7 @@ class RpcClient:
         self,
         transport: Any,
         *,
-        timeout: float = DEFAULT_TIMEOUT,
+        timeout: float = DEFAULT_REQUEST_TIMEOUT,
     ) -> None:
         self.transport = transport
         self._handlers: dict[str, Handler] = {}
@@ -48,7 +47,7 @@ class RpcClient:
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
-    async def connect(self, timeout: float = 10.0) -> None:
+    async def connect(self, timeout: float = DEFAULT_CONNECT_TIMEOUT) -> None:
         await self.transport.connect(timeout=timeout)
 
     async def disconnect(self) -> None:
@@ -65,7 +64,9 @@ class RpcClient:
         self._handlers.pop(method, None)
         self.router.unregister(method)
 
-    async def request(self, method: str, params: Any = None, *, timeout: float | None = None) -> Any:
+    async def request(
+        self, method: str, params: Any = None, *, timeout: float | None = None
+    ) -> Any:
         if not self.connected:
             raise RpcError(ErrorCode.NOT_CONNECTED, "not connected")
         return await self.router.request(method, params, timeout=timeout)

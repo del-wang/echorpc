@@ -11,7 +11,7 @@ import websockets
 from websockets.asyncio.server import ServerConnection
 from websockets.asyncio.client import ClientConnection
 
-from ..core import DEFAULT_PING_INTERVAL, PONG_TIMEOUT, make_notification
+from ..core import DEFAULT_PING_INTERVAL, DEFAULT_PONG_TIMEOUT, make_notification
 
 logger = logging.getLogger("viberpc")
 
@@ -93,7 +93,7 @@ class WsConnection:
         if self._pong_timer:
             return
         loop = asyncio.get_running_loop()
-        self._pong_timer = loop.call_later(PONG_TIMEOUT, self._pong_expired)
+        self._pong_timer = loop.call_later(DEFAULT_PONG_TIMEOUT, self._pong_expired)
 
     def _pong_expired(self) -> None:
         self._pong_timer = None

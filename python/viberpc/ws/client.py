@@ -11,9 +11,12 @@ import websockets
 from websockets.exceptions import InvalidStatus
 
 from ..core import (
-    DEFAULT_PING_INTERVAL, INITIAL_RECONNECT_DELAY,
+    DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_MAX_RECONNECT_DELAY,
-    RpcError, ErrorCode,
+    DEFAULT_PING_INTERVAL,
+    INITIAL_RECONNECT_DELAY,
+    ErrorCode,
+    RpcError,
 )
 from .connection import WsConnection
 
@@ -64,7 +67,11 @@ class WsClient:
             return self.url
         parsed = urlparse(self.url)
         sep = "&" if parsed.query else ""
-        new_query = parsed.query + sep + urlencode(params) if parsed.query else urlencode(params)
+        new_query = (
+            parsed.query + sep + urlencode(params)
+            if parsed.query
+            else urlencode(params)
+        )
         return urlunparse(parsed._replace(query=new_query))
 
     @property
@@ -76,7 +83,7 @@ class WsClient:
         if self._conn and self._conn.is_open:
             await self._conn.send(raw)
 
-    async def connect(self, timeout: float = 10.0) -> None:
+    async def connect(self, timeout: float = DEFAULT_CONNECT_TIMEOUT) -> None:
         """Start connection loop in background. Returns when first connected or raises on failure."""
         self._closed = False
         ready: asyncio.Future[None] = asyncio.get_event_loop().create_future()
@@ -107,7 +114,9 @@ class WsClient:
                 if e.response.status_code == 401:
                     logger.error("auth failed: HTTP 401")
                     if ready and not ready.done():
-                        ready.set_exception(RpcError(ErrorCode.AUTH_FAILED, "auth failed"))
+                        ready.set_exception(
+                            RpcError(ErrorCode.AUTH_FAILED, "auth failed")
+                        )
                         ready = None
                     if self.on_auth_failed:
                         self.on_auth_failed()
@@ -125,7 +134,9 @@ class WsClient:
                 break
             logger.info("reconnecting in %.1fs...", self._reconnect_delay)
             await asyncio.sleep(self._reconnect_delay)
-            self._reconnect_delay = min(self._reconnect_delay * 2, self.max_reconnect_delay)
+            self._reconnect_delay = min(
+                self._reconnect_delay * 2, self.max_reconnect_delay
+            )
 
         if ready and not ready.done():
             ready.set_exception(RpcError(ErrorCode.NOT_CONNECTED, "connection failed"))

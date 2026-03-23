@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
+
+from python.viberpc.core import DEFAULT_CONNECT_TIMEOUT
 
 
 @runtime_checkable
@@ -23,7 +25,7 @@ class ITransportConnection(Protocol):
 class ITransportClient(Protocol):
     """Client-side transport — manages outgoing connection lifecycle."""
 
-    async def connect(self, timeout: float = 10.0) -> None: ...
+    async def connect(self, timeout: float = DEFAULT_CONNECT_TIMEOUT) -> None: ...
     async def disconnect(self) -> None: ...
     async def send(self, raw: str) -> None: ...
 

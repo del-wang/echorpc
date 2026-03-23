@@ -5,6 +5,7 @@
  */
 
 import { RpcConnection } from "./connection.js";
+import { DEFAULT_REQUEST_TIMEOUT } from "./core.js";
 import type { ITransportServer } from "./transport.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -49,7 +50,7 @@ export class RpcServer {
 
   constructor(transport: ITransportServer, opts: ServerOptions = {}) {
     this.transport = transport;
-    this._timeout = opts.timeout ?? 30_000;
+    this._timeout = opts.timeout ?? DEFAULT_REQUEST_TIMEOUT;
 
     // Wire transport connection event
     this.transport.onConnection = (conn, meta) => {

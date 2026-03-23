@@ -9,11 +9,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable
 
 from .core import (
-    RpcError, ErrorCode, make_response, make_error_response, make_request,
-    make_notification, DEFAULT_TIMEOUT,
+    DEFAULT_REQUEST_TIMEOUT,
+    ErrorCode,
+    RpcError,
+    make_error_response,
+    make_notification,
+    make_request,
+    make_response,
 )
 
 logger = logging.getLogger("viberpc")
@@ -29,7 +34,7 @@ class MessageRouter:
         self,
         send: Callable[[str], Awaitable[None] | None],
         *,
-        timeout: float = DEFAULT_TIMEOUT,
+        timeout: float = DEFAULT_REQUEST_TIMEOUT,
     ) -> None:
         self._send_fn = send
         self.timeout = timeout

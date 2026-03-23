@@ -4,6 +4,7 @@
  */
 
 import type { IWebSocket } from "../core.js";
+import { DEFAULT_PING_INTERVAL, DEFAULT_PONG_TIMEOUT } from "../core.js";
 import type { ITransportConnection } from "../transport.js";
 
 const WS_OPEN = 1;
@@ -19,7 +20,7 @@ export class WsConnection implements ITransportConnection {
 
   constructor(
     public readonly ws: IWebSocket,
-    private readonly pingInterval: number = 30_000,
+    private readonly pingInterval: number = DEFAULT_PING_INTERVAL,
   ) {}
 
   get isOpen(): boolean {
@@ -82,7 +83,7 @@ export class WsConnection implements ITransportConnection {
     this._pongTimer = setTimeout(() => {
       this._pongTimer = null;
       this.close();
-    }, 5_000);
+    }, DEFAULT_PONG_TIMEOUT);
   }
 
   /** Clear pong timeout (called when pong is received via the router). */

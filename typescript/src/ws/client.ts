@@ -9,6 +9,11 @@ import {
   RpcError,
   ErrorCode,
   resolveWebSocket,
+  DEFAULT_PING_INTERVAL,
+  DEFAULT_MAX_RECONNECT_DELAY,
+  DEFAULT_CONNECT_TIMEOUT,
+  DEFAULT_PONG_TIMEOUT,
+  INITIAL_RECONNECT_DELAY,
 } from "../core.js";
 import type { ITransportClient } from "../transport.js";
 
@@ -60,8 +65,8 @@ export class WsClient implements ITransportClient {
     this.token = opts.token ?? "";
     this.role = opts.role ?? "web";
     this.clientId = opts.clientId ?? "";
-    this.pingInterval = opts.pingInterval ?? 30_000;
-    this.maxReconnectDelay = opts.maxReconnectDelay ?? 5_000;
+    this.pingInterval = opts.pingInterval ?? DEFAULT_PING_INTERVAL;
+    this.maxReconnectDelay = opts.maxReconnectDelay ?? DEFAULT_MAX_RECONNECT_DELAY;
     this.autoReconnect = opts.autoReconnect ?? true;
     this.WS = opts.WebSocket;
   }
@@ -73,7 +78,7 @@ export class WsClient implements ITransportClient {
   private _connectResolve: (() => void) | null = null;
   private _connectReject: ((err: Error) => void) | null = null;
 
-  connect(timeoutMs = 10_000): Promise<void> {
+  connect(timeoutMs = DEFAULT_CONNECT_TIMEOUT): Promise<void> {
     this.intentionalClose = false;
     this._everConnected = false;
     return new Promise<void>((resolve, reject) => {
@@ -181,7 +186,7 @@ export class WsClient implements ITransportClient {
       }
       this.pongTimer = setTimeout(() => {
         this.ws?.close();
-      }, 5_000);
+      }, DEFAULT_PONG_TIMEOUT);
     }, this.pingInterval);
   }
 
@@ -204,7 +209,7 @@ export class WsClient implements ITransportClient {
     if (this.reconnectTimer) return;
     this.reconnectAttempt++;
     const delay = Math.min(
-      100 * Math.pow(2, this.reconnectAttempt),
+      INITIAL_RECONNECT_DELAY * Math.pow(2, this.reconnectAttempt),
       this.maxReconnectDelay,
     );
     this.reconnectTimer = setTimeout(() => {

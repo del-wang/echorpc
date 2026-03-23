@@ -3,8 +3,8 @@
  * Provides the user-facing API for connecting to an RPC server.
  */
 
-import type { RpcHandler, EventCallback } from "./core.js";
-import { RpcError, ErrorCode } from "./core.js";
+import type { EventCallback, RpcHandler } from "./core.js";
+import { DEFAULT_REQUEST_TIMEOUT, ErrorCode, RpcError } from "./core.js";
 import { MessageRouter } from "./router.js";
 import type { ITransportClient } from "./transport.js";
 
@@ -23,7 +23,7 @@ export class RpcClient {
     this.transport = transport;
     this.router = new MessageRouter(
       (raw) => this.transport.send(raw),
-      opts?.timeout ?? 30_000,
+      opts?.timeout ?? DEFAULT_REQUEST_TIMEOUT,
     );
 
     // Wire pong callback to transport

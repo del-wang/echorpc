@@ -3,7 +3,8 @@
  * Implements ITransportServer. Dynamically imports `ws`.
  */
 
-import type { ITransportServer, ITransportConnection } from "../transport.js";
+import { DEFAULT_PING_INTERVAL } from "../core.js";
+import type { ITransportConnection, ITransportServer } from "../transport.js";
 import { WsConnection } from "./connection.js";
 
 export interface WsServerOptions {
@@ -38,7 +39,7 @@ export class WsServer implements ITransportServer {
     this.host = opts.host ?? "0.0.0.0";
     this.port = opts.port ?? 9100;
     this.authHandler = opts.authHandler;
-    this.pingInterval = opts.pingInterval ?? 30_000;
+    this.pingInterval = opts.pingInterval ?? DEFAULT_PING_INTERVAL;
   }
 
   get address(): { host: string; port: number } | null {

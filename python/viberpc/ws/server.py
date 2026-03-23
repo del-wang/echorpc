@@ -11,6 +11,7 @@ import websockets
 from websockets.asyncio.server import ServerConnection
 from websockets.http11 import Response
 
+from ..core import DEFAULT_PING_INTERVAL
 from .connection import WsConnection
 
 logger = logging.getLogger("viberpc")
@@ -25,7 +26,7 @@ class WsServer:
         port: int = 9100,
         *,
         auth_handler: Callable[[dict], Awaitable[dict] | dict] | None = None,
-        ping_interval: float = 30.0,
+        ping_interval: float = DEFAULT_PING_INTERVAL,
     ) -> None:
         self.host = host
         self.port = port

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from .core import DEFAULT_TIMEOUT
+from .core import DEFAULT_REQUEST_TIMEOUT
 from .router import MessageRouter, Handler, EventCallback
 
 
@@ -16,7 +16,7 @@ class RpcConnection:
         self,
         transport: Any,
         *,
-        timeout: float = DEFAULT_TIMEOUT,
+        timeout: float = DEFAULT_REQUEST_TIMEOUT,
     ) -> None:
         self.transport = transport
         self.meta: dict[str, Any] = {}

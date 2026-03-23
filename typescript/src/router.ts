@@ -5,12 +5,13 @@
  */
 
 import {
-  type RpcId,
-  type RpcHandler,
-  type EventCallback,
-  RpcError,
+  DEFAULT_REQUEST_TIMEOUT,
   ErrorCode,
+  type EventCallback,
   nextId,
+  RpcError,
+  type RpcHandler,
+  type RpcId,
 } from "./core.js";
 
 interface PendingCall {
@@ -30,7 +31,7 @@ export class MessageRouter {
 
   constructor(
     private readonly _send: (raw: string) => void | Promise<void>,
-    private readonly _timeout: number = 30_000,
+    private readonly _timeout: number = DEFAULT_REQUEST_TIMEOUT,
   ) {}
 
   // ── Incoming message entry point ────────────────────────────────────

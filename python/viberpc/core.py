@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
 
-
 # ── Error codes ──────────────────────────────────────────────────────────────
+
 
 class ErrorCode(IntEnum):
     # Standard JSON-RPC 2.0 error codes
@@ -41,8 +40,13 @@ class RpcError(Exception):
 
 # ── Message helpers ──────────────────────────────────────────────────────────
 
+
 def make_request(method: str, params: Any = None, req_id: str | None = None) -> dict:
-    msg: dict[str, Any] = {"jsonrpc": "2.0", "id": req_id or uuid.uuid4().hex[:8], "method": method}
+    msg: dict[str, Any] = {
+        "jsonrpc": "2.0",
+        "id": req_id or uuid.uuid4().hex[:8],
+        "method": method,
+    }
     if params is not None:
         msg["params"] = params
     return msg
@@ -66,8 +70,9 @@ def make_notification(method: str, params: Any = None) -> dict:
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-DEFAULT_TIMEOUT = 30.0
+DEFAULT_CONNECT_TIMEOUT = 10.0
+DEFAULT_REQUEST_TIMEOUT = 30.0
 DEFAULT_PING_INTERVAL = 30.0
+DEFAULT_PONG_TIMEOUT = 5.0
+INITIAL_RECONNECT_DELAY = 1.0
 DEFAULT_MAX_RECONNECT_DELAY = 5.0
-INITIAL_RECONNECT_DELAY = 0.1
-PONG_TIMEOUT = 5.0
