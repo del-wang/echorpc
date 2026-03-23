@@ -618,6 +618,113 @@ describe("TS Server: Custom auth handler", () => {
   });
 });
 
+// ── Ping/Pong heartbeat ──────────────────────────────────────────────────────
+
+describe("TS Server: Ping/Pong heartbeat", () => {
+  it("server disconnects unresponsive client", async () => {
+    // Server with short ping interval
+    const ws1 = new WsServer({ port: 0, pingInterval: 200 });
+    const srv = new RpcServer(ws1);
+    await srv.start();
+    const port = srv.address!.port;
+
+    // Connect a raw WebSocket that never replies to ping
+    const raw = new WS(`ws://127.0.0.1:${port}?token=t&role=web`);
+    const closed = new Promise<void>((resolve) => {
+      raw.onclose = () => resolve();
+    });
+    await new Promise<void>((resolve) => {
+      raw.onopen = () => resolve();
+    });
+
+    // Wait for server ping (200ms) + pong timeout (5s) — server should close it
+    await closed;
+
+    expect(srv.getConnections().length).toBe(0);
+
+    await srv.stop();
+  }, 10_000);
+
+  it("client reconnects when server stops responding", async () => {
+    const ws1 = new WsServer({ port: 0 });
+    const srv = new RpcServer(ws1);
+    srv.register("echo", (conn, p) => p);
+    await srv.start();
+    const port = srv.address!.port;
+
+    // Client with short ping interval
+    const transport = new WsClient(`ws://127.0.0.1:${port}`, {
+      token: "t",
+      role: "web",
+      autoReconnect: true,
+      maxReconnectDelay: 500,
+      pingInterval: 200,
+      WebSocket: WS,
+    });
+    const client = new RpcClient(transport);
+    await client.connect();
+    expect(client.connected).toBe(true);
+
+    // Track reconnect
+    let reconnected = false;
+    client.onConnect = () => {
+      reconnected = true;
+    };
+
+    // Stop server — client's pong timeout will fire and trigger reconnect
+    await srv.stop();
+
+    // Wait for pong timeout (5s) + reconnect backoff + margin
+    await new Promise((r) => setTimeout(r, 7_000));
+
+    // Restart server on same port
+    const ws2 = new WsServer({ port });
+    const srv2 = new RpcServer(ws2);
+    srv2.register("echo", (conn, p) => p);
+    await srv2.start();
+
+    // Wait for reconnect
+    await new Promise((r) => setTimeout(r, 2_000));
+    expect(reconnected).toBe(true);
+    expect(client.connected).toBe(true);
+
+    const result = await client.request("echo", { v: 1 });
+    expect(result).toEqual({ v: 1 });
+
+    await client.disconnect();
+    await srv2.stop();
+  }, 15_000);
+
+  it("normal ping/pong keeps connection alive", async () => {
+    const ws1 = new WsServer({ port: 0, pingInterval: 200 });
+    const srv = new RpcServer(ws1);
+    srv.register("echo", (conn, p) => p);
+    await srv.start();
+    const port = srv.address!.port;
+
+    const transport = new WsClient(`ws://127.0.0.1:${port}`, {
+      token: "t",
+      role: "web",
+      autoReconnect: false,
+      pingInterval: 200,
+      WebSocket: WS,
+    });
+    const client = new RpcClient(transport);
+    await client.connect();
+
+    // Wait through several ping/pong cycles
+    await new Promise((r) => setTimeout(r, 1_500));
+
+    // Connection should still be alive
+    expect(client.connected).toBe(true);
+    const result = await client.request("echo", { alive: true });
+    expect(result).toEqual({ alive: true });
+
+    await client.disconnect();
+    await srv.stop();
+  });
+});
+
 // ── Auto-reconnect ──────────────────────────────────────────────────────
 
 describe("TS Server: Auto-reconnect", () => {

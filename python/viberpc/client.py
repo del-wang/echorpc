@@ -31,6 +31,9 @@ class RpcClient:
             timeout=timeout,
         )
 
+        # Wire pong callback to transport
+        self.router.on_pong = self._on_pong
+
         self.on_connect: Callable[[], Any] | None = None
         self.on_disconnect: Callable[[], Any] | None = None
 
@@ -108,3 +111,7 @@ class RpcClient:
     def _on_close(self) -> None:
         if self.on_disconnect:
             self.on_disconnect()
+
+    def _on_pong(self) -> None:
+        if hasattr(self.transport, "refresh_pong"):
+            self.transport.refresh_pong()

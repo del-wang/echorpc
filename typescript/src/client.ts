@@ -26,6 +26,13 @@ export class RpcClient {
       opts?.timeout ?? 30_000,
     );
 
+    // Wire pong callback to transport
+    this.router.onPong = () => {
+      if ("refreshPong" in this.transport) {
+        (this.transport as { refreshPong(): void }).refreshPong();
+      }
+    };
+
     // Wire transport events
     this.transport.onMessage = (raw) => this.router.dispatchMessage(raw);
 

@@ -529,6 +529,106 @@ class TestAuth:
         await server.stop()
 
 
+# ── Ping/Pong heartbeat ──────────────────────────────────────────────
+
+
+class TestPingPong:
+    async def test_server_disconnects_unresponsive_client(self):
+        """Server closes connection when client never sends pong."""
+        import websockets
+
+        ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=0.2)
+        server = RpcServer(ws_server)
+        await server.start()
+        port = server.address[1]
+
+        # Connect a raw WebSocket that never replies to ping (disable built-in ping)
+        raw = await websockets.connect(
+            f"ws://127.0.0.1:{port}?token=t&role=web",
+            ping_interval=None,
+        )
+
+        # Consume incoming messages (pings) until server closes the connection
+        try:
+            async with asyncio.timeout(8.0):
+                async for _ in raw:
+                    pass
+        except Exception:
+            pass
+
+        # Allow server to finish cleanup
+        await asyncio.sleep(0.1)
+        assert len(server.get_connections()) == 0
+
+        await server.stop()
+
+    async def test_client_reconnects_when_server_stops(self):
+        """Client reconnects after server stops responding (pong timeout)."""
+        ws1 = WsServer(host="127.0.0.1", port=0, ping_interval=300)
+        srv1 = RpcServer(ws1)
+        srv1.register("echo", lambda conn, p: p)
+        await srv1.start()
+        port = srv1.address[1]
+
+        transport = WsClient(
+            f"ws://127.0.0.1:{port}",
+            token="t", role="web",
+            auto_reconnect=True, max_reconnect_delay=0.5,
+            ping_interval=0.2,
+        )
+        client = RpcClient(transport)
+        await client.connect()
+        assert client.connected
+
+        reconnected = asyncio.Event()
+        client.on_connect = lambda: reconnected.set()
+
+        # Stop server — client pong timeout will fire
+        await srv1.stop()
+        await asyncio.sleep(7.0)
+
+        # Restart on same port
+        ws2 = WsServer(host="127.0.0.1", port=port, ping_interval=300)
+        srv2 = RpcServer(ws2)
+        srv2.register("echo", lambda conn, p: p)
+        await srv2.start()
+
+        await asyncio.wait_for(reconnected.wait(), timeout=5.0)
+        assert client.connected
+
+        r = await client.request("echo", {"v": 1})
+        assert r == {"v": 1}
+
+        await client.disconnect()
+        await srv2.stop()
+
+    async def test_normal_ping_pong_keeps_alive(self):
+        """Connection stays alive with normal ping/pong cycles."""
+        ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=0.2)
+        server = RpcServer(ws_server)
+        server.register("echo", lambda conn, p: p)
+        await server.start()
+        port = server.address[1]
+
+        transport = WsClient(
+            f"ws://127.0.0.1:{port}",
+            token="t", role="web",
+            auto_reconnect=False, ping_interval=0.2,
+        )
+        client = RpcClient(transport)
+        await client.connect()
+
+        # Wait through several ping/pong cycles
+        await asyncio.sleep(1.5)
+
+        assert client.connected
+        r = await client.request("echo", {"alive": True})
+        assert r == {"alive": True}
+
+        await client.disconnect()
+        await server.stop()
+
+
 # ── Auto-reconnect ──────────────────────────────────────────────────
 
 

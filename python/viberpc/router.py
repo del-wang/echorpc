@@ -37,6 +37,7 @@ class MessageRouter:
         self._pending: dict[str, asyncio.Future[Any]] = {}
         self._subscribers: dict[str, list[EventCallback]] = {}
         self._closed = False
+        self.on_pong: Callable[[], Any] | None = None
 
     # ── Incoming message entry point ────────────────────────────────────
 
@@ -155,6 +156,8 @@ class MessageRouter:
             await self._raw_send(make_notification("pong"))
             return None
         if method == "pong":
+            if self.on_pong:
+                self.on_pong()
             return None
 
         req_id = msg.get("id")
@@ -229,6 +232,8 @@ class MessageRouter:
         if method == "ping":
             return make_notification("pong")
         if method == "pong":
+            if self.on_pong:
+                self.on_pong()
             return None
 
         if req_id is not None and req_id in self._pending:

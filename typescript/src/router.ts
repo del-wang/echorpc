@@ -25,6 +25,9 @@ export class MessageRouter {
   private _subscribers = new Map<string, Set<EventCallback>>();
   private _closed = false;
 
+  /** Called when a pong message is received. */
+  onPong?: () => void;
+
   constructor(
     private readonly _send: (raw: string) => void | Promise<void>,
     private readonly _timeout: number = 30_000,
@@ -171,6 +174,7 @@ export class MessageRouter {
       return;
     }
     if (method === "pong") {
+      this.onPong?.();
       return;
     }
 
@@ -290,6 +294,7 @@ export class MessageRouter {
       return { jsonrpc: "2.0", method: "pong" };
     }
     if (method === "pong") {
+      this.onPong?.();
       return null;
     }
 

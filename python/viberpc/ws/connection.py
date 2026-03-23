@@ -11,7 +11,7 @@ import websockets
 from websockets.asyncio.server import ServerConnection
 from websockets.asyncio.client import ClientConnection
 
-from ..core import DEFAULT_PING_INTERVAL, make_notification
+from ..core import DEFAULT_PING_INTERVAL, PONG_TIMEOUT, make_notification
 
 logger = logging.getLogger("viberpc")
 
@@ -31,6 +31,7 @@ class WsConnection:
         self.ping_interval = ping_interval
         self._closed = False
         self._ping_task: asyncio.Task[None] | None = None
+        self._pong_timer: asyncio.TimerHandle | None = None
 
         self.on_message: Callable[[str], Any] | None = None
         self.on_close: Callable[[], Any] | None = None
@@ -48,6 +49,7 @@ class WsConnection:
     async def close(self) -> None:
         self._closed = True
         self._cancel_ping()
+        self._cancel_pong_timer()
         try:
             await self.ws.close()
         except Exception:
@@ -67,6 +69,7 @@ class WsConnection:
         finally:
             self._closed = True
             self._cancel_ping()
+            self._cancel_pong_timer()
             if self.on_close:
                 result = self.on_close()
                 if asyncio.iscoroutine(result):
@@ -80,10 +83,30 @@ class WsConnection:
                     break
                 try:
                     await self.ws.send(json.dumps(make_notification("ping")))
+                    self._arm_pong_timeout()
                 except Exception:
                     break
         except asyncio.CancelledError:
             pass
+
+    def _arm_pong_timeout(self) -> None:
+        if self._pong_timer:
+            return
+        loop = asyncio.get_running_loop()
+        self._pong_timer = loop.call_later(PONG_TIMEOUT, self._pong_expired)
+
+    def _pong_expired(self) -> None:
+        self._pong_timer = None
+        asyncio.ensure_future(self.close())
+
+    def refresh_pong(self) -> None:
+        """Clear pong timeout (called when pong is received via the router)."""
+        self._cancel_pong_timer()
+
+    def _cancel_pong_timer(self) -> None:
+        if self._pong_timer:
+            self._pong_timer.cancel()
+            self._pong_timer = None
 
     def _cancel_ping(self) -> None:
         if self._ping_task and not self._ping_task.done():

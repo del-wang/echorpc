@@ -27,6 +27,9 @@ class RpcConnection:
             timeout=timeout,
         )
 
+        # Wire pong callback to transport
+        self.router.on_pong = self._on_pong
+
     @property
     def is_open(self) -> bool:
         return self.transport.is_open
@@ -55,6 +58,10 @@ class RpcConnection:
     def _on_close(self) -> None:
         self.router.close()
         self._close_event.set()
+
+    def _on_pong(self) -> None:
+        if hasattr(self.transport, "refresh_pong"):
+            self.transport.refresh_pong()
 
     # ── RPC methods (delegate to router) ────────────────────────────────
 

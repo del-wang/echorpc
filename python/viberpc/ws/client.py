@@ -149,3 +149,8 @@ class WsClient:
     def _on_ws_close(self) -> None:
         # The on_close callback is fired from the connect() loop's finally
         pass
+
+    def refresh_pong(self) -> None:
+        """Delegate pong refresh to the underlying WsConnection."""
+        if self._conn:
+            self._conn.refresh_pong()

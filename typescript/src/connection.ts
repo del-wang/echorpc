@@ -24,6 +24,13 @@ export class RpcConnection {
       (raw) => this.transport.send(raw),
       opts?.timeout ?? 30_000,
     );
+
+    // Wire pong callback to transport
+    this.router.onPong = () => {
+      if ("refreshPong" in this.transport) {
+        (this.transport as { refreshPong(): void }).refreshPong();
+      }
+    };
   }
 
   get isOpen(): boolean {

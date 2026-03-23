@@ -15,6 +15,7 @@ export class WsConnection implements ITransportConnection {
 
   private _closed = false;
   private _pingTimer: ReturnType<typeof setInterval> | null = null;
+  private _pongTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     public readonly ws: IWebSocket,
@@ -71,14 +72,35 @@ export class WsConnection implements ITransportConnection {
     this._pingTimer = setInterval(() => {
       if (this.ws.readyState === WS_OPEN) {
         this.ws.send(JSON.stringify({ jsonrpc: "2.0", method: "ping" }));
+        this._armPongTimeout();
       }
     }, this.pingInterval);
+  }
+
+  private _armPongTimeout(): void {
+    if (this._pongTimer) return;
+    this._pongTimer = setTimeout(() => {
+      this._pongTimer = null;
+      this.close();
+    }, 5_000);
+  }
+
+  /** Clear pong timeout (called when pong is received via the router). */
+  refreshPong(): void {
+    if (this._pongTimer) {
+      clearTimeout(this._pongTimer);
+      this._pongTimer = null;
+    }
   }
 
   private _stopPing(): void {
     if (this._pingTimer) {
       clearInterval(this._pingTimer);
       this._pingTimer = null;
+    }
+    if (this._pongTimer) {
+      clearTimeout(this._pongTimer);
+      this._pongTimer = null;
     }
   }
 }
