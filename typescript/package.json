@@ -1,46 +1,44 @@
 {
-  "name": "viberpc",
-  "version": "0.1.0",
-  "description": "Universal WebSocket JSON-RPC 2.0 client / server — works in Node.js and browsers",
-  "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./server": {
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js"
-    },
-    "./connection": {
-      "types": "./dist/connection.d.ts",
-      "import": "./dist/connection.js"
-    }
-  },
-  "scripts": {
-    "build": "tsc",
-    "demo:server": "cd ../python && python examples/demo_server.py",
-    "demo:client": "tsx examples/node-client.ts",
-    "demo:web": "vite examples/web",
-    "test": "vitest run"
-  },
-  "dependencies": {},
-  "peerDependencies": {
-    "ws": ">=8.0.0"
-  },
-  "peerDependenciesMeta": {
-    "ws": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
-    "@types/ws": "^8.5.13",
-    "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "vite": "^6.0.0",
-    "vitest": "^3.0.0",
-    "ws": "^8.18.0"
-  }
+	"name": "echorpc",
+	"version": "0.1.0",
+	"description": "Universal WebSocket JSON-RPC 2.0 client / server — works in Node.js and browsers",
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./server": {
+			"types": "./dist/server.d.ts",
+			"import": "./dist/server.js"
+		},
+		"./connection": {
+			"types": "./dist/connection.d.ts",
+			"import": "./dist/connection.js"
+		}
+	},
+	"scripts": {
+		"build": "tsc",
+		"test": "vitest run",
+		"lint": "biome check --write --no-errors-on-unmatched --diagnostic-level=error ."
+	},
+	"dependencies": {},
+	"peerDependencies": {
+		"ws": ">=8.0.0"
+	},
+	"peerDependenciesMeta": {
+		"ws": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@types/ws": "^8.5.13",
+		"tsx": "^4.19.0",
+		"typescript": "^5.6.0",
+		"vite": "^6.0.0",
+		"vitest": "^3.0.0",
+		"ws": "^8.18.0"
+	}
 }

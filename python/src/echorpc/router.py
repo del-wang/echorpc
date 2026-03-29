@@ -21,7 +21,7 @@ from .core import (
     make_response,
 )
 
-logger = logging.getLogger("viberpc")
+logger = logging.getLogger("echorpc")
 
 Handler = Callable[..., Awaitable[Any] | Any]
 EventCallback = Callable[[Any], Any]
@@ -66,7 +66,9 @@ class MessageRouter:
     def unregister(self, method: str) -> None:
         self._handlers.pop(method, None)
 
-    async def request(self, method: str, params: Any = None, *, timeout: float | None = None) -> Any:
+    async def request(
+        self, method: str, params: Any = None, *, timeout: float | None = None
+    ) -> Any:
         """Send an RPC request and wait for response."""
         if self._closed:
             raise RpcError(ErrorCode.NOT_CONNECTED, "not connected")
@@ -175,7 +177,9 @@ class MessageRouter:
                 return None
             error = msg.get("error")
             if error:
-                fut.set_exception(RpcError(error["code"], error["message"], error.get("data")))
+                fut.set_exception(
+                    RpcError(error["code"], error["message"], error.get("data"))
+                )
             else:
                 fut.set_result(msg.get("result"))
             return None
@@ -196,7 +200,8 @@ class MessageRouter:
             handler = self._handlers.get(method)
             if not handler:
                 resp = make_error_response(
-                    req_id, RpcError(ErrorCode.METHOD_NOT_FOUND, f"method not found: {method}")
+                    req_id,
+                    RpcError(ErrorCode.METHOD_NOT_FOUND, f"method not found: {method}"),
                 )
                 await self._raw_send(resp)
                 return resp
@@ -208,17 +213,21 @@ class MessageRouter:
     async def _dispatch_batch(self, batch: list) -> None:
         if not batch:
             await self._raw_send(
-                make_error_response(None, RpcError(ErrorCode.INVALID_REQUEST, "Invalid Request"))
+                make_error_response(
+                    None, RpcError(ErrorCode.INVALID_REQUEST, "Invalid Request")
+                )
             )
             return
 
         tasks: list[asyncio.Task] = []
         for item in batch:
             if not isinstance(item, dict):
+
                 async def _invalid():
                     return make_error_response(
                         None, RpcError(ErrorCode.INVALID_REQUEST, "Invalid Request")
                     )
+
                 tasks.append(asyncio.create_task(_invalid()))
             else:
                 tasks.append(asyncio.create_task(self._process_batch_item(item)))
@@ -246,7 +255,9 @@ class MessageRouter:
             if not fut.done():
                 error = msg.get("error")
                 if error:
-                    fut.set_exception(RpcError(error["code"], error["message"], error.get("data")))
+                    fut.set_exception(
+                        RpcError(error["code"], error["message"], error.get("data"))
+                    )
                 else:
                     fut.set_result(msg.get("result"))
             return None
@@ -265,7 +276,8 @@ class MessageRouter:
             handler = self._handlers.get(method)
             if not handler:
                 return make_error_response(
-                    req_id, RpcError(ErrorCode.METHOD_NOT_FOUND, f"method not found: {method}")
+                    req_id,
+                    RpcError(ErrorCode.METHOD_NOT_FOUND, f"method not found: {method}"),
                 )
             return await self._handle_call(req_id, handler, params)
 
@@ -273,7 +285,9 @@ class MessageRouter:
             req_id, RpcError(ErrorCode.INVALID_REQUEST, "Invalid Request")
         )
 
-    async def _handle_call(self, req_id: str | int, handler: Handler, params: Any) -> dict:
+    async def _handle_call(
+        self, req_id: str | int, handler: Handler, params: Any
+    ) -> dict:
         try:
             result = handler(params)
             if asyncio.iscoroutine(result) or asyncio.isfuture(result):
@@ -286,7 +300,9 @@ class MessageRouter:
                 req_id, RpcError(ErrorCode.INTERNAL_ERROR, str(e))
             )
 
-    async def _exec_and_send(self, req_id: str | int, handler: Handler, params: Any) -> None:
+    async def _exec_and_send(
+        self, req_id: str | int, handler: Handler, params: Any
+    ) -> None:
         resp = await self._handle_call(req_id, handler, params)
         await self._raw_send(resp)
 

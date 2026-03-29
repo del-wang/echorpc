@@ -20,7 +20,7 @@ from ..core import (
 )
 from .connection import WsConnection
 
-logger = logging.getLogger("viberpc")
+logger = logging.getLogger("echorpc")
 
 
 class WsClient:

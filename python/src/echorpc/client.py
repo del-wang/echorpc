@@ -8,7 +8,7 @@ from typing import Any, Callable
 from .core import DEFAULT_CONNECT_TIMEOUT, DEFAULT_REQUEST_TIMEOUT, ErrorCode, RpcError
 from .router import EventCallback, Handler, MessageRouter
 
-logger = logging.getLogger("viberpc")
+logger = logging.getLogger("echorpc")
 
 
 class RpcClient:

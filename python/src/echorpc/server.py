@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable
 
 from .connection import RpcConnection
 
-logger = logging.getLogger("viberpc")
+logger = logging.getLogger("echorpc")
 
 # Server-side handler types — receive conn (the calling connection) as 1st arg
 ServerHandler = Callable[..., Awaitable[Any] | Any]
@@ -66,10 +66,12 @@ class RpcServer:
 
     def method(self, name: str | None = None) -> Callable:
         """Decorator to register an RPC method."""
+
         def decorator(fn: ServerHandler) -> ServerHandler:
             method_name = name if name is not None else fn.__name__
             self.register(method_name, fn)
             return fn
+
         return decorator
 
     # ── Pub/Sub Registration ─────────────────────────────────────────────
@@ -84,10 +86,12 @@ class RpcServer:
 
     def subscription(self, name: str | None = None) -> Callable:
         """Decorator to register a notification subscriber."""
+
         def decorator(fn: ServerEventCallback) -> ServerEventCallback:
             sub_name = name if name is not None else fn.__name__
             self.subscribe(sub_name, fn)
             return fn
+
         return decorator
 
     # ── Lifecycle hooks ──────────────────────────────────────────────────
@@ -107,7 +111,9 @@ class RpcServer:
 
     # ── Broadcast ────────────────────────────────────────────────────────
 
-    async def broadcast(self, method: str, params: Any = None, *, role: str | None = None) -> None:
+    async def broadcast(
+        self, method: str, params: Any = None, *, role: str | None = None
+    ) -> None:
         targets = self.get_connections(role)
         await asyncio.gather(
             *(c.publish(method, params) for c in targets if c.is_open),
@@ -118,11 +124,15 @@ class RpcServer:
         self, method: str, params: Any = None, *, exclude: RpcConnection | None = None
     ) -> None:
         targets = [c for c in self._connections if c is not exclude and c.is_open]
-        await asyncio.gather(*(c.publish(method, params) for c in targets), return_exceptions=True)
+        await asyncio.gather(
+            *(c.publish(method, params) for c in targets), return_exceptions=True
+        )
 
     # ── Internal ─────────────────────────────────────────────────────────
 
-    async def _handle_connection(self, transport_conn: Any, meta: dict[str, Any]) -> None:
+    async def _handle_connection(
+        self, transport_conn: Any, meta: dict[str, Any]
+    ) -> None:
         conn = RpcConnection(transport_conn, timeout=self.timeout)
         conn.meta = {**meta}
 

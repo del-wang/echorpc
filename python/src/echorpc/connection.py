@@ -6,7 +6,7 @@ import asyncio
 from typing import Any
 
 from .core import DEFAULT_REQUEST_TIMEOUT
-from .router import MessageRouter, Handler, EventCallback
+from .router import EventCallback, Handler, MessageRouter
 
 
 class RpcConnection:
@@ -71,7 +71,9 @@ class RpcConnection:
     def unregister(self, method: str) -> None:
         self.router.unregister(method)
 
-    async def request(self, method: str, params: Any = None, *, timeout: float | None = None) -> Any:
+    async def request(
+        self, method: str, params: Any = None, *, timeout: float | None = None
+    ) -> Any:
         return await self.router.request(method, params, timeout=timeout)
 
     async def batch_request(

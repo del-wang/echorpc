@@ -1,4 +1,4 @@
-# VibeRPC
+# EchoRPC
 
 Bidirectional JSON-RPC 2.0 for TypeScript and Python — request, batch, pub/sub, auth, auto-reconnect.
 
@@ -19,7 +19,7 @@ Bidirectional JSON-RPC 2.0 for TypeScript and Python — request, batch, pub/sub
 ### Server
 
 ```python
-from viberpc import RpcServer, WsServer
+from echorpc import RpcServer, WsServer
 
 # Auth handler: return to accept, raise to reject
 def auth(params):
@@ -57,7 +57,7 @@ await server.start()                     # server.address → ("0.0.0.0", 9100)
 ### Client
 
 ```python
-from viberpc import RpcClient, WsClient
+from echorpc import RpcClient, WsClient
 
 transport = WsClient("ws://localhost:9100", token="secret", role="node")
 client = RpcClient(transport)
@@ -84,7 +84,7 @@ await client.disconnect()
 ### Server
 
 ```ts
-import { RpcServer, WsServer, RpcError, ErrorCode } from "viberpc";
+import { RpcServer, WsServer, RpcError, ErrorCode } from "echorpc";
 
 // Auth handler: return to accept, throw to reject
 const ws = new WsServer({
@@ -92,34 +92,41 @@ const ws = new WsServer({
   authHandler: (params) => {
     if (params.token !== "secret")
       throw new RpcError(ErrorCode.AUTH_FAILED, "denied"); // → client gets RpcError(AUTH_FAILED)
-    return             // → accept, return value ignored
+    return; // → accept, return value ignored
   },
 });
 const server = new RpcServer(ws);
 
-server.register("add", (conn, p: { a: number; b: number }) => ({ sum: p.a + p.b }));
+server.register("add", (conn, p: { a: number; b: number }) => ({
+  sum: p.a + p.b,
+}));
 
 // Bidirectional: call client from server handler
-server.register("ask.client", async (conn, p) => await conn.request("client.compute", p));
+server.register(
+  "ask.client",
+  async (conn, p) => await conn.request("client.compute", p),
+);
 
 // Pub/Sub
 server.subscribe("chat", (conn, data) => server.broadcast("chat", data));
 
-await server.start();                    // server.address → { host, port }
+await server.start(); // server.address → { host, port }
 ```
 
 ### Client — Node.js
 
 ```ts
 import WebSocket from "ws";
-import { RpcClient, WsClient } from "viberpc";
+import { RpcClient, WsClient } from "echorpc";
 
 const transport = new WsClient("ws://localhost:9100", {
-  token: "secret", role: "node", WebSocket,
+  token: "secret",
+  role: "node",
+  WebSocket,
 });
 const client = new RpcClient(transport);
 
-await client.connect();                  // throws RpcError(AUTH_FAILED) / RpcError(TIMEOUT)
+await client.connect(); // throws RpcError(AUTH_FAILED) / RpcError(TIMEOUT)
 
 const result = await client.request("add", { a: 1, b: 2 });
 
@@ -131,7 +138,10 @@ client.subscribe("chat", (data) => console.log(data));
 client.publish("chat", { text: "hello" });
 
 // Batch
-const results = await client.batchRequest([["add", { a: 1, b: 2 }], ["add", { a: 3, b: 4 }]]);
+const results = await client.batchRequest([
+  ["add", { a: 1, b: 2 }],
+  ["add", { a: 3, b: 4 }],
+]);
 
 await client.disconnect();
 ```
@@ -139,32 +149,35 @@ await client.disconnect();
 ### Client — Browser
 
 ```ts
-import { RpcClient, WsClient } from "viberpc";
+import { RpcClient, WsClient } from "echorpc";
 
 // Browser has native WebSocket — no import needed
-const transport = new WsClient("ws://localhost:9100", { token: "secret", role: "web" });
+const transport = new WsClient("ws://localhost:9100", {
+  token: "secret",
+  role: "web",
+});
 const client = new RpcClient(transport);
 await client.connect();
 ```
 
 ## Error Codes
 
-| Code | Name | Meaning |
-| --- | --- | --- |
-| -32700 | Parse error | Invalid JSON |
-| -32600 | Invalid Request | Malformed JSON-RPC |
-| -32601 | Method not found | No such method |
-| -32602 | Invalid params | Bad parameters |
-| -32603 | Internal error | Handler threw |
-| -32001 | Not connected | No active connection |
-| -32002 | Timeout | Request timed out |
-| -32003 | Auth failed | Authentication rejected |
+| Code   | Name             | Meaning                 |
+| ------ | ---------------- | ----------------------- |
+| -32700 | Parse error      | Invalid JSON            |
+| -32600 | Invalid Request  | Malformed JSON-RPC      |
+| -32601 | Method not found | No such method          |
+| -32602 | Invalid params   | Bad parameters          |
+| -32603 | Internal error   | Handler threw           |
+| -32001 | Not connected    | No active connection    |
+| -32002 | Timeout          | Request timed out       |
+| -32003 | Auth failed      | Authentication rejected |
 
 ## Tests
 
 ```bash
-cd typescript && npm test
-cd python && python -m pytest tests/ -v
+cd typescript && pnpm test
+cd python && uv run task test
 ```
 
 ## License

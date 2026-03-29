@@ -7,7 +7,7 @@ import asyncio
 
 import pytest
 
-from viberpc import RpcServer, RpcClient, RpcError, ErrorCode, WsServer, WsClient
+from echorpc import ErrorCode, RpcClient, RpcError, RpcServer, WsClient, WsServer
 
 pytestmark = pytest.mark.asyncio
 
@@ -33,14 +33,20 @@ class TestBasicRpc:
         ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=300)
         self.server = RpcServer(ws_server)
         self.server.register("echo", lambda conn, params: params)
-        self.server.register("add", lambda conn, params: {"sum": params["a"] + params["b"]})
+        self.server.register(
+            "add", lambda conn, params: {"sum": params["a"] + params["b"]}
+        )
         self.server.register("server.time", lambda conn, params: {"time": 12345})
-        self.server.register("throws", lambda conn, params: (_ for _ in ()).throw(
-            RpcError(ErrorCode.INVALID_PARAMS, "bad params")
-        ))
+        self.server.register(
+            "throws",
+            lambda conn, params: (_ for _ in ()).throw(
+                RpcError(ErrorCode.INVALID_PARAMS, "bad params")
+            ),
+        )
 
         async def throws_generic(conn, params):
             raise Exception("something broke")
+
         self.server.register("throws.generic", throws_generic)
 
         await self.server.start()
@@ -109,10 +115,13 @@ class TestHandlerConn:
     async def setup(self):
         ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=300)
         self.server = RpcServer(ws_server)
-        self.server.register("whoami", lambda conn, params: {
-            "role": conn.meta.get("role"),
-            "authenticated": conn.meta.get("authenticated"),
-        })
+        self.server.register(
+            "whoami",
+            lambda conn, params: {
+                "role": conn.meta.get("role"),
+                "authenticated": conn.meta.get("authenticated"),
+            },
+        )
 
         async def ask_client(conn, params):
             answer = await conn.request("client.answer")
@@ -209,10 +218,15 @@ class TestPubSub:
         ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=300)
         fresh_server = RpcServer(ws_server)
         received = []
-        fresh_server.subscribe("client.hello", lambda conn, data: received.append({
-            "data": data,
-            "role": conn.meta.get("role"),
-        }))
+        fresh_server.subscribe(
+            "client.hello",
+            lambda conn, data: received.append(
+                {
+                    "data": data,
+                    "role": conn.meta.get("role"),
+                }
+            ),
+        )
         await fresh_server.start()
         port = fresh_server.address[1]
 
@@ -271,13 +285,19 @@ class TestBatchRequests:
         ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=300)
         self.server = RpcServer(ws_server)
         self.server.register("echo", lambda conn, params: params)
-        self.server.register("add", lambda conn, params: {"sum": params["a"] + params["b"]})
-        self.server.register("fail", lambda conn, params: (_ for _ in ()).throw(
-            RpcError(-100, "intentional error")
-        ))
+        self.server.register(
+            "add", lambda conn, params: {"sum": params["a"] + params["b"]}
+        )
+        self.server.register(
+            "fail",
+            lambda conn, params: (_ for _ in ()).throw(
+                RpcError(-100, "intentional error")
+            ),
+        )
 
         async def slow_echo(conn, params):
             import random
+
             await asyncio.sleep(random.uniform(0.01, 0.05))
             return params
 
@@ -292,11 +312,13 @@ class TestBatchRequests:
         client = make_client(self.port)
         await client.connect()
 
-        results = await client.batch_request([
-            ("echo", {"x": 1}),
-            ("add", {"a": 10, "b": 20}),
-            ("echo", {"x": 2}),
-        ])
+        results = await client.batch_request(
+            [
+                ("echo", {"x": 1}),
+                ("add", {"a": 10, "b": 20}),
+                ("echo", {"x": 2}),
+            ]
+        )
 
         assert len(results) == 3
         assert results[0] == {"x": 1}
@@ -309,11 +331,13 @@ class TestBatchRequests:
         client = make_client(self.port)
         await client.connect()
 
-        results = await client.batch_request([
-            ("echo", {"ok": True}),
-            ("fail", None),
-            ("add", {"a": 1, "b": 2}),
-        ])
+        results = await client.batch_request(
+            [
+                ("echo", {"ok": True}),
+                ("fail", None),
+                ("add", {"a": 1, "b": 2}),
+            ]
+        )
 
         assert len(results) == 3
         assert results[0] == {"ok": True}
@@ -429,15 +453,19 @@ class TestAuth:
                 raise Exception("invalid token")
             return {"ok": True}
 
-        ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=300, auth_handler=auth)
+        ws_server = WsServer(
+            host="127.0.0.1", port=0, ping_interval=300, auth_handler=auth
+        )
         server = RpcServer(ws_server)
         server.register("echo", lambda conn, p: p)
         await server.start()
         port = server.address[1]
 
         transport = WsClient(
-            f"ws://127.0.0.1:{port}", token="valid-token",
-            auto_reconnect=False, ping_interval=300,
+            f"ws://127.0.0.1:{port}",
+            token="valid-token",
+            auto_reconnect=False,
+            ping_interval=300,
         )
         client = RpcClient(transport)
         await client.connect()
@@ -455,15 +483,19 @@ class TestAuth:
                 raise Exception("invalid token")
             return {"ok": True}
 
-        ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=300, auth_handler=auth)
+        ws_server = WsServer(
+            host="127.0.0.1", port=0, ping_interval=300, auth_handler=auth
+        )
         server = RpcServer(ws_server)
         server.register("echo", lambda conn, p: p)
         await server.start()
         port = server.address[1]
 
         transport = WsClient(
-            f"ws://127.0.0.1:{port}", token="wrong-token",
-            auto_reconnect=False, ping_interval=300,
+            f"ws://127.0.0.1:{port}",
+            token="wrong-token",
+            auto_reconnect=False,
+            ping_interval=300,
         )
         client = RpcClient(transport)
         with pytest.raises(RpcError) as exc_info:
@@ -482,8 +514,10 @@ class TestAuth:
         port = server.address[1]
 
         transport = WsClient(
-            f"ws://127.0.0.1:{port}", token="anything",
-            auto_reconnect=False, ping_interval=300,
+            f"ws://127.0.0.1:{port}",
+            token="anything",
+            auto_reconnect=False,
+            ping_interval=300,
         )
         client = RpcClient(transport)
         await client.connect()
@@ -501,15 +535,19 @@ class TestAuth:
                 raise Exception("nope")
             return {"ok": True}
 
-        ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=300, auth_handler=auth)
+        ws_server = WsServer(
+            host="127.0.0.1", port=0, ping_interval=300, auth_handler=auth
+        )
         server = RpcServer(ws_server)
         server.register("echo", lambda conn, p: p)
         await server.start()
         port = server.address[1]
 
         transport = WsClient(
-            f"ws://127.0.0.1:{port}", token="wrong-token",
-            auto_reconnect=False, ping_interval=300,
+            f"ws://127.0.0.1:{port}",
+            token="wrong-token",
+            auto_reconnect=False,
+            ping_interval=300,
         )
         client = RpcClient(transport)
         with pytest.raises(RpcError) as exc_info:
@@ -572,8 +610,10 @@ class TestPingPong:
 
         transport = WsClient(
             f"ws://127.0.0.1:{port}",
-            token="t", role="web",
-            auto_reconnect=True, max_reconnect_delay=0.5,
+            token="t",
+            role="web",
+            auto_reconnect=True,
+            max_reconnect_delay=0.5,
             ping_interval=0.2,
         )
         client = RpcClient(transport)
@@ -612,8 +652,10 @@ class TestPingPong:
 
         transport = WsClient(
             f"ws://127.0.0.1:{port}",
-            token="t", role="web",
-            auto_reconnect=False, ping_interval=0.2,
+            token="t",
+            role="web",
+            auto_reconnect=False,
+            ping_interval=0.2,
         )
         client = RpcClient(transport)
         await client.connect()
@@ -643,8 +685,11 @@ class TestAutoReconnect:
 
         transport = WsClient(
             f"ws://127.0.0.1:{port}",
-            token="t", role="web",
-            auto_reconnect=True, max_reconnect_delay=0.5, ping_interval=300,
+            token="t",
+            role="web",
+            auto_reconnect=True,
+            max_reconnect_delay=0.5,
+            ping_interval=300,
         )
         client = RpcClient(transport)
         await client.connect()
@@ -685,14 +730,18 @@ class TestAutoReconnect:
 
         async def ask(conn, p):
             return await conn.request("client.double", p)
+
         srv1.register("ask", ask)
         await srv1.start()
         port = srv1.address[1]
 
         transport = WsClient(
             f"ws://127.0.0.1:{port}",
-            token="t", role="node",
-            auto_reconnect=True, max_reconnect_delay=0.5, ping_interval=300,
+            token="t",
+            role="node",
+            auto_reconnect=True,
+            max_reconnect_delay=0.5,
+            ping_interval=300,
         )
         client = RpcClient(transport)
         client.register("client.double", lambda p: p["x"] * 2)
@@ -730,8 +779,11 @@ class TestAutoReconnect:
 
         transport = WsClient(
             f"ws://127.0.0.1:{port}",
-            token="t", role="web",
-            auto_reconnect=True, max_reconnect_delay=0.5, ping_interval=300,
+            token="t",
+            role="web",
+            auto_reconnect=True,
+            max_reconnect_delay=0.5,
+            ping_interval=300,
         )
         client = RpcClient(transport)
         events = []
@@ -776,6 +828,7 @@ class TestServerDecorators:
 
     async def test_method_decorator_with_name(self):
         """@server.method("name") registers an RPC method."""
+
         @self.server.method("add")
         def add(conn, params):
             return {"sum": params["a"] + params["b"]}
@@ -791,6 +844,7 @@ class TestServerDecorators:
 
     async def test_method_decorator_infers_name(self):
         """@server.method() uses function name as method name."""
+
         @self.server.method()
         def echo(conn, params):
             return params
@@ -806,6 +860,7 @@ class TestServerDecorators:
 
     async def test_method_decorator_async_handler(self):
         """@server.method works with async handlers."""
+
         @self.server.method("compute")
         async def compute(conn, params):
             await asyncio.sleep(0.01)

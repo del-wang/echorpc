@@ -8,12 +8,12 @@ import logging
 from typing import Any, Callable
 
 import websockets
-from websockets.asyncio.server import ServerConnection
 from websockets.asyncio.client import ClientConnection
+from websockets.asyncio.server import ServerConnection
 
 from ..core import DEFAULT_PING_INTERVAL, DEFAULT_PONG_TIMEOUT, make_notification
 
-logger = logging.getLogger("viberpc")
+logger = logging.getLogger("echorpc")
 
 WebSocketConn = ServerConnection | ClientConnection
 

@@ -8,8 +8,8 @@ import json
 
 import pytest
 
-from viberpc.core import RpcError, ErrorCode
-from viberpc.router import MessageRouter
+from echorpc.core import ErrorCode, RpcError
+from echorpc.router import MessageRouter
 
 pytestmark = pytest.mark.asyncio
 
@@ -55,7 +55,9 @@ class TestRpcHandlers:
         create_router()
         router.register("echo", lambda params: params)
         await router.dispatch_message(
-            json.dumps({"jsonrpc": "2.0", "id": "1", "method": "echo", "params": {"x": 1}})
+            json.dumps(
+                {"jsonrpc": "2.0", "id": "1", "method": "echo", "params": {"x": 1}}
+            )
         )
         await asyncio.sleep(0.01)
         assert last_sent() == {"jsonrpc": "2.0", "id": "1", "result": {"x": 1}}
@@ -129,11 +131,13 @@ class TestPendingRequests:
         await asyncio.sleep(0.01)
         req = json.loads(sent[0])
         await router.dispatch_message(
-            json.dumps({
-                "jsonrpc": "2.0",
-                "id": req["id"],
-                "error": {"code": -100, "message": "err"},
-            })
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": req["id"],
+                    "error": {"code": -100, "message": "err"},
+                }
+            )
         )
         with pytest.raises(RpcError):
             await p
@@ -160,7 +164,10 @@ class TestPubSub:
     async def test_unsubscribe(self):
         create_router()
         received = []
-        cb = lambda data: received.append(data)
+
+        def cb(data):
+            return received.append(data)
+
         router.subscribe("event", cb)
         router.unsubscribe("event", cb)
         await router.dispatch_message(
@@ -187,19 +194,27 @@ class TestBatch:
 
     async def test_batch_request_resolves_in_order(self):
         create_router()
-        p = asyncio.create_task(router.batch_request([
-            ("echo", {"x": 1}),
-            ("add", {"a": 1, "b": 2}),
-        ]))
+        p = asyncio.create_task(
+            router.batch_request(
+                [
+                    ("echo", {"x": 1}),
+                    ("add", {"a": 1, "b": 2}),
+                ]
+            )
+        )
         await asyncio.sleep(0.01)
         batch = json.loads(sent[0])
         assert len(batch) == 2
 
         # Respond out of order
-        await router.dispatch_message(json.dumps([
-            {"jsonrpc": "2.0", "id": batch[1]["id"], "result": {"sum": 3}},
-            {"jsonrpc": "2.0", "id": batch[0]["id"], "result": {"x": 1}},
-        ]))
+        await router.dispatch_message(
+            json.dumps(
+                [
+                    {"jsonrpc": "2.0", "id": batch[1]["id"], "result": {"sum": 3}},
+                    {"jsonrpc": "2.0", "id": batch[0]["id"], "result": {"x": 1}},
+                ]
+            )
+        )
 
         results = await p
         assert results[0] == {"x": 1}

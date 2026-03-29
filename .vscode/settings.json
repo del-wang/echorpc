@@ -3,7 +3,7 @@
   "editor.tabSize": 2,
   "editor.insertSpaces": true,
   "editor.formatOnSave": true,
-  "python.languageServer": "Pylance",
+  "python.languageServer": "None",
   "ruff.organizeImports": true,
   "[python]": {
     "editor.defaultFormatter": "charliermarsh.ruff",
@@ -34,10 +34,12 @@
     "editor.defaultFormatter": "biomejs.biome"
   },
   "files.exclude": {
-    "**/.git": true,
     "**/node_modules": true,
+    "**/.venv": true,
+    "**/*.egg-info": true,
+    "**/.mypy_cache": true,
+    "**/.pytest_cache": true,
     "**/__pycache__": true,
-    "*.egg-info": true,
-    ".mypy_cache": true
+    "**/.ruff_cache": true
   }
 }

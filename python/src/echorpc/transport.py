@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Protocol, runtime_checkable
 
-from python.viberpc.core import DEFAULT_CONNECT_TIMEOUT
+from python.echorpc.core import DEFAULT_CONNECT_TIMEOUT
 
 
 @runtime_checkable

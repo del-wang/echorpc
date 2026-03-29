@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable, Awaitable
-from urllib.parse import urlparse, parse_qs
+from typing import Any, Awaitable, Callable
+from urllib.parse import parse_qs, urlparse
 
 import websockets
 from websockets.asyncio.server import ServerConnection
@@ -14,7 +14,7 @@ from websockets.http11 import Response
 from ..core import DEFAULT_PING_INTERVAL
 from .connection import WsConnection
 
-logger = logging.getLogger("viberpc")
+logger = logging.getLogger("echorpc")
 
 
 class WsServer:
@@ -57,7 +57,9 @@ class WsServer:
             self._server.close()
             await self._server.wait_closed()
 
-    async def _process_request(self, connection: ServerConnection, request: Any) -> Response | None:
+    async def _process_request(
+        self, connection: ServerConnection, request: Any
+    ) -> Response | None:
         parsed = urlparse(request.path)
         qs = parse_qs(parsed.query)
         token = qs.get("token", [""])[0]
@@ -72,14 +74,18 @@ class WsServer:
         except Exception:
             return connection.respond(401, "Unauthorized\n")
 
-        connection._viberpc_meta = {"token": token, "role": role, "client_id": client_id}
+        connection._echorpc_meta = {
+            "token": token,
+            "role": role,
+            "client_id": client_id,
+        }
         return None
 
     async def _handle_connection(self, ws: ServerConnection) -> None:
         conn = WsConnection(ws, ping_interval=self.ping_interval)
 
         # Read metadata stashed by process_request (or set defaults)
-        meta_raw = getattr(ws, "_viberpc_meta", None)
+        meta_raw = getattr(ws, "_echorpc_meta", None)
         if meta_raw:
             meta = {**meta_raw, "authenticated": True}
         else:
