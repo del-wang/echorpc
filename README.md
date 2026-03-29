@@ -139,4 +139,4 @@ await client.connect();
 
 ## License
 
-MIT
+MIT License © 2026-PRESENT [Del Wang](https://del.wang)
