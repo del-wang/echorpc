@@ -1,7 +1,7 @@
 [project]
 name = "echorpc"
 version = "0.1.0"
-description = "Bidirectional JSON-RPC 2.0 for TypeScript and Python — request, batch, pub/sub, auth, auto-reconnect."
+description = "Bidirectional JSON-RPC 2.0 over WebSocket — TypeScript & Python."
 requires-python = ">=3.12"
 dependencies = ["aiohttp>=3.13.4", "websockets>=16.0"]
 

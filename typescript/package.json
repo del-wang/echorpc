@@ -1,7 +1,7 @@
 {
 	"name": "echorpc",
 	"version": "0.1.0",
-	"description": "Universal WebSocket JSON-RPC 2.0 client / server — works in Node.js and browsers",
+	"description": "Bidirectional JSON-RPC 2.0 over WebSocket — TypeScript & Python.",
 	"type": "module",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
