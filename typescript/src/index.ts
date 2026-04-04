@@ -1,29 +1,32 @@
-// Core
+// Bundled convenience classes
 
+// Core
 export { RpcClient } from "./client.js";
 // RPC layer
 export { RpcConnection } from "./connection.js";
 export {
-	type ClientOptions,
 	ErrorCode,
+	resolveWebSocket,
+	RpcError,
+	type ClientOptions,
 	type EventCallback,
 	type IWebSocket,
-	RpcError,
 	type RpcHandler,
 	type RpcId,
 	type RpcNotification,
 	type RpcRequest,
 	type RpcResponse,
-	resolveWebSocket,
 	type WebSocketConstructor,
 } from "./core.js";
+export { EchoClient, type EchoClientOptions } from "./echo-client.js";
+export { EchoServer, type EchoServerOptions } from "./echo-server.js";
 // Router
 export { MessageRouter } from "./router.js";
 export {
+	RpcServer,
 	type AuthHandler,
 	type OnConnectCallback,
 	type OnDisconnectCallback,
-	RpcServer,
 	type ServerEventCallback,
 	type ServerOptions,
 	type ServerRpcHandler,

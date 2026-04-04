@@ -24,19 +24,41 @@ pip install echorpc
 
 ## Server
 
+**TypeScript**
+
+```ts
+import { EchoServer } from "echorpc";
+
+const server = new EchoServer({
+  port: 9100,
+  authHandler: (p) => p.token === "secret",
+});
+
+// Handlers support flexible signatures: (conn, params), (params), or ()
+server.register("add", (conn, p: { a: number; b: number }) => ({
+  sum: p.a + p.b,
+}));
+server.register("health", () => "ok");
+
+// Use (conn, params) when you need the connection
+server.register("ask.client", async (conn, p) => {
+  return await conn.request("client.compute", p);
+});
+
+// Pub/Sub — broadcast incoming messages to all clients
+server.subscribe("chat", async (conn, data) => {
+  server.broadcast("chat", data);
+});
+
+await server.start();
+```
+
 **Python**
 
 ```python
-from echorpc import RpcServer, WsServer
+from echorpc import EchoServer
 
-def auth(params):
-    if params["token"] != "secret":
-        return False
-    # Return True to allow, or a dict to merge into conn.meta:
-    return {"user_id": "u1", "role": params["role"]}
-
-ws = WsServer(port=9100, auth_handler=auth)
-server = RpcServer(ws)
+server = EchoServer(port=9100, auth_handler=lambda p: p["token"] == "secret")
 
 # Handlers support flexible signatures: (conn, params), (params), or ()
 @server.method("add")
@@ -60,43 +82,52 @@ async def on_chat(conn, data):
 await server.start()
 ```
 
-**TypeScript**
+## Client
+
+**TypeScript (Node.js)**
 
 ```ts
-import { RpcServer, WsServer } from "echorpc";
+import WebSocket from "ws";
+import { EchoClient } from "echorpc";
 
-const ws = new WsServer({
-  port: 9100,
-  authHandler: (params) => {
-    if (params.token !== "secret") return false;
-    // Return true to allow, or an object to merge into conn.meta:
-    return { userId: "u1", role: params.role };
-  },
+const client = new EchoClient("ws://localhost:9100", {
+  token: "secret",
+  WebSocket,
 });
-const server = new RpcServer(ws);
+await client.connect();
 
-// Handlers support flexible signatures: (conn, params), (params), or ()
-server.register("add", (p: { a: number; b: number }) => ({
-  sum: p.a + p.b,
-}));
-server.register("health", () => "ok");
+// RPC call
+const result = await client.request("add", { a: 1, b: 2 });
 
-// Use (conn, params) when you need the connection
-server.register("ask.client", async (conn, p) => {
-  return await conn.request("client.compute", p);
-});
+// Batch
+const results = await client.batchRequest([
+  ["add", { a: 1, b: 2 }],
+  ["add", { a: 3, b: 4 }],
+]);
 
-await server.start();
+// Register a method the server can call back
+client.register("client.compute", (p) => p.x * 2);
+
+// Pub/Sub
+client.subscribe("chat", (data) => console.log(data));
+client.publish("chat", { text: "hello" });
 ```
 
-## Client
+**TypeScript (Browser)** — no `WebSocket` import needed, uses the native one.
+
+```ts
+import { EchoClient } from "echorpc";
+
+const client = new EchoClient("ws://localhost:9100", { token: "secret" });
+await client.connect();
+```
 
 **Python**
 
 ```python
-from echorpc import RpcClient, WsClient
+from echorpc import EchoClient
 
-client = RpcClient(WsClient("ws://localhost:9100", token="secret"))
+client = EchoClient("ws://localhost:9100", token="secret")
 await client.connect()
 
 # RPC call
@@ -116,30 +147,31 @@ client.subscribe("chat", lambda data: print(data))
 await client.publish("chat", {"text": "hello"})
 ```
 
-**TypeScript (Node.js)**
+## Advanced: Decoupled Transport
+
+For custom transports or fine-grained control, compose `RpcServer`/`RpcClient` with any transport manually.
 
 ```ts
-import WebSocket from "ws";
-import { RpcClient, WsClient } from "echorpc";
+import { RpcServer, WsServer, RpcClient, WsClient } from "echorpc";
 
-const transport = new WsClient("ws://localhost:9100", {
-  token: "secret",
-  WebSocket,
-});
+// Server
+const ws = new WsServer({ port: 9100 });
+const server = new RpcServer(ws);
+
+// Client
+const transport = new WsClient("ws://localhost:9100", { WebSocket });
 const client = new RpcClient(transport);
-await client.connect();
-
-const result = await client.request("add", { a: 1, b: 2 });
 ```
 
-**TypeScript (Browser)** — no `WebSocket` import needed, uses the native one.
+```python
+from echorpc import RpcServer, WsServer, RpcClient, WsClient
 
-```ts
-import { RpcClient, WsClient } from "echorpc";
+# Server
+ws = WsServer(port=9100)
+server = RpcServer(ws)
 
-const transport = new WsClient("ws://localhost:9100", { token: "secret" });
-const client = new RpcClient(transport);
-await client.connect();
+# Client
+client = RpcClient(WsClient("ws://localhost:9100"))
 ```
 
 ## Error Codes
