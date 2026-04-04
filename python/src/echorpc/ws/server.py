@@ -25,7 +25,7 @@ class WsServer:
         host: str = "0.0.0.0",
         port: int = 9100,
         *,
-        auth_handler: Callable[[dict], Awaitable[dict] | dict] | None = None,
+        auth_handler: Callable[[dict], Awaitable[bool | dict] | bool | dict] | None = None,
         ping_interval: float = DEFAULT_PING_INTERVAL,
     ) -> None:
         self.host = host
@@ -74,11 +74,16 @@ class WsServer:
         except Exception:
             return connection.respond(401, "Unauthorized\n")
 
-        connection._echorpc_meta = {
-            "token": token,
-            "role": role,
-            "client_id": client_id,
-        }
+        # Falsy return (False, None, 0, etc.) → reject
+        if not result:
+            return connection.respond(401, "Unauthorized\n")
+
+        meta = {"token": token, "role": role, "client_id": client_id}
+        # If auth_handler returned a dict, merge it into meta
+        if isinstance(result, dict):
+            meta.update(result)
+
+        connection._echorpc_meta = meta
         return None
 
     async def _handle_connection(self, ws: ServerConnection) -> None:

@@ -12,8 +12,18 @@ export interface WsServerOptions {
 	host?: string;
 	/** Port to listen on (default: 9100). */
 	port?: number;
-	/** Auth handler called during WebSocket upgrade handshake. */
-	authHandler?: (params: Record<string, unknown>) => unknown | Promise<unknown>;
+	/** Auth handler called during WebSocket upgrade handshake.
+	 * Return `true` to allow, `false`/`null`/`undefined` to reject (401).
+	 * Return an object to allow and merge it into `conn.meta`.
+	 * Throwing also rejects. */
+	authHandler?: (
+		params: Record<string, unknown>,
+	) =>
+		| boolean
+		| Record<string, unknown>
+		| Promise<boolean | Record<string, unknown> | null | undefined>
+		| null
+		| undefined;
 	/** Server-side heartbeat interval in ms (default: 30000). */
 	pingInterval?: number;
 }
@@ -27,7 +37,12 @@ export class WsServer implements ITransportServer {
 	private readonly port: number;
 	private readonly authHandler?: (
 		params: Record<string, unknown>,
-	) => unknown | Promise<unknown>;
+	) =>
+		| boolean
+		| Record<string, unknown>
+		| Promise<boolean | Record<string, unknown> | null | undefined>
+		| null
+		| undefined;
 	private readonly pingInterval: number;
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,13 +82,23 @@ export class WsServer implements ITransportServer {
 
 				Promise.resolve()
 					.then(() => this.authHandler!(authParams))
-					.then(() => {
-						// eslint-disable-next-line @typescript-eslint/no-explicit-any
-						(info.req as any)._echorpcMeta = {
+					.then((result) => {
+						// Falsy return (false, null, undefined, 0) → reject
+						if (!result) {
+							done(false, 401, "Unauthorized");
+							return;
+						}
+						const meta: Record<string, unknown> = {
 							token,
 							role,
 							client_id: clientId,
 						};
+						// If auth returned an object, merge into meta
+						if (typeof result === "object" && result !== null) {
+							Object.assign(meta, result);
+						}
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any
+						(info.req as any)._echorpcMeta = meta;
 						done(true);
 					})
 					.catch(() => {
@@ -124,9 +149,7 @@ export class WsServer implements ITransportServer {
 		let meta: Record<string, unknown>;
 		if (stashedMeta) {
 			meta = {
-				token: stashedMeta.token,
-				role: stashedMeta.role,
-				client_id: stashedMeta.client_id,
+				...stashedMeta,
 				authenticated: true,
 			};
 		} else {

@@ -449,9 +449,7 @@ class TestConnectionManagement:
 class TestAuth:
     async def test_valid_token_connects(self):
         def auth(params):
-            if params["token"] != "valid-token":
-                raise Exception("invalid token")
-            return {"ok": True}
+            return params["token"] == "valid-token"
 
         ws_server = WsServer(
             host="127.0.0.1", port=0, ping_interval=300, auth_handler=auth
@@ -479,9 +477,7 @@ class TestAuth:
 
     async def test_invalid_token_rejected(self):
         def auth(params):
-            if params["token"] != "valid-token":
-                raise Exception("invalid token")
-            return {"ok": True}
+            return params["token"] == "valid-token"
 
         ws_server = WsServer(
             host="127.0.0.1", port=0, ping_interval=300, auth_handler=auth
@@ -531,9 +527,7 @@ class TestAuth:
 
     async def test_unauthenticated_cannot_call_methods(self):
         def auth(params):
-            if params["token"] != "valid-token":
-                raise Exception("nope")
-            return {"ok": True}
+            return params["token"] == "valid-token"
 
         ws_server = WsServer(
             host="127.0.0.1", port=0, ping_interval=300, auth_handler=auth
@@ -564,6 +558,47 @@ class TestAuth:
             await client.publish("echo", "ok")
         assert exc_info.value.code == ErrorCode.NOT_CONNECTED
 
+        await server.stop()
+
+    async def test_auth_returns_metadata(self):
+        """Auth handler returning a dict merges it into conn.meta."""
+
+        def auth(params):
+            if params["token"] != "valid-token":
+                return False
+            return {"user_id": "u123", "permissions": ["read", "write"]}
+
+        ws_server = WsServer(
+            host="127.0.0.1", port=0, ping_interval=300, auth_handler=auth
+        )
+        server = RpcServer(ws_server)
+
+        server.register(
+            "whoami",
+            lambda conn, p: {
+                "user_id": conn.meta.get("user_id"),
+                "permissions": conn.meta.get("permissions"),
+                "authenticated": conn.meta.get("authenticated"),
+            },
+        )
+        await server.start()
+        port = server.address[1]
+
+        transport = WsClient(
+            f"ws://127.0.0.1:{port}",
+            token="valid-token",
+            auto_reconnect=False,
+            ping_interval=300,
+        )
+        client = RpcClient(transport)
+        await client.connect()
+
+        result = await client.request("whoami", {})
+        assert result["user_id"] == "u123"
+        assert result["permissions"] == ["read", "write"]
+        assert result["authenticated"] is True
+
+        await client.disconnect()
         await server.stop()
 
 

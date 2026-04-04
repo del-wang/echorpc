@@ -17,7 +17,7 @@ pip install echorpc
 - **Bidirectional RPC** — server and client can call each other's methods
 - **Pub/Sub** — fire-and-forget notifications via `publish` / `subscribe`
 - **Batch requests** — multiple calls per frame, results returned in order
-- **Auth** — token validated during HTTP upgrade, rejected before WebSocket opens
+- **Auth** — token validated during HTTP upgrade
 - **Heartbeat** — ping/pong with auto-disconnect on timeout
 - **Auto-reconnect** — exponential backoff, handlers and subscriptions preserved
 - **Broadcast** — send to all connections, filter by role, or exclude specific peers
@@ -31,7 +31,9 @@ from echorpc import RpcServer, WsServer
 
 def auth(params):
     if params["token"] != "secret":
-        raise Exception("denied")
+        return False
+    # Return True to allow, or a dict to merge into conn.meta:
+    return {"user_id": "u1", "role": params["role"]}
 
 ws = WsServer(port=9100, auth_handler=auth)
 server = RpcServer(ws)
@@ -61,7 +63,9 @@ import { RpcServer, WsServer } from "echorpc";
 const ws = new WsServer({
   port: 9100,
   authHandler: (params) => {
-    if (params.token !== "secret") throw new Error("denied");
+    if (params.token !== "secret") return false;
+    // Return true to allow, or an object to merge into conn.meta:
+    return { userId: "u1", role: params.role };
   },
 });
 const server = new RpcServer(ws);

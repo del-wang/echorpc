@@ -517,12 +517,7 @@ describe("TS Server: Custom auth handler", () => {
 	beforeAll(async () => {
 		const authWsServer = new WsServer({
 			port: 0,
-			authHandler: (params) => {
-				if (params.token !== "valid-token") {
-					throw new RpcError(ErrorCode.AUTH_FAILED, "invalid token");
-				}
-				return { ok: true };
-			},
+			authHandler: (params) => params.token === "valid-token",
 		});
 		authServer = new RpcServer(authWsServer);
 		authServer.register("echo", (conn, p) => p);
@@ -615,6 +610,44 @@ describe("TS Server: Custom auth handler", () => {
 		}
 		expect(() => client.publish("echo", "ok")).toThrow(RpcError);
 		await client.disconnect();
+	});
+
+	it("auth handler returning object merges into conn.meta", async () => {
+		const metaWsServer = new WsServer({
+			port: 0,
+			authHandler: (params) => {
+				if (params.token !== "valid-token") return false;
+				return { user_id: "u123", permissions: ["read", "write"] };
+			},
+		});
+		const metaServer = new RpcServer(metaWsServer);
+		metaServer.register("whoami", (conn, _p) => ({
+			user_id: conn.meta.user_id,
+			permissions: conn.meta.permissions,
+			authenticated: conn.meta.authenticated,
+		}));
+		await metaServer.start();
+		const port = metaServer.address!.port;
+
+		const transport = new WsClient(`ws://127.0.0.1:${port}`, {
+			token: "valid-token",
+			autoReconnect: false,
+			pingInterval: 300_000,
+			WebSocket: WS,
+		});
+		const client = new RpcClient(transport);
+		await client.connect();
+
+		const result = (await client.request("whoami", {})) as Record<
+			string,
+			unknown
+		>;
+		expect(result.user_id).toBe("u123");
+		expect(result.permissions).toEqual(["read", "write"]);
+		expect(result.authenticated).toBe(true);
+
+		await client.disconnect();
+		await metaServer.stop();
 	});
 });
 
