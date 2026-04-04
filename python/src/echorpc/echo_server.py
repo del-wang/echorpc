@@ -35,66 +35,68 @@ class EchoServer:
             ping_interval=ping_interval,
             pong_timeout=pong_timeout,
         )
-        self.rpc = RpcServer(self.ws, timeout=timeout)
+        self.core = RpcServer(self.ws, timeout=timeout)
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
     async def start(self) -> None:
-        await self.rpc.start()
+        await self.core.start()
 
     async def stop(self) -> None:
-        await self.rpc.stop()
+        await self.core.stop()
 
     async def serve_forever(self) -> None:
-        await self.rpc.serve_forever()
+        await self.core.serve_forever()
 
     @property
     def address(self) -> tuple[str, int] | None:
-        return self.rpc.address
+        return self.core.address
 
     # ── RPC Registration ─────────────────────────────────────────────────
 
     def register(self, method: str, handler: ServerHandler) -> None:
-        self.rpc.register(method, handler)
+        self.core.register(method, handler)
 
     def unregister(self, method: str) -> None:
-        self.rpc.unregister(method)
+        self.core.unregister(method)
 
-    def method(self, name: str | None = None) -> Callable:
-        return self.rpc.method(name)
+    def rpc(self, name: str | None = None) -> Callable:
+        return self.core.rpc(name)
 
     # ── Pub/Sub Registration ─────────────────────────────────────────────
 
     def subscribe(self, method: str, callback: ServerEventCallback) -> None:
-        self.rpc.subscribe(method, callback)
+        self.core.subscribe(method, callback)
 
     def unsubscribe(self, method: str, callback: ServerEventCallback) -> None:
-        self.rpc.unsubscribe(method, callback)
+        self.core.unsubscribe(method, callback)
 
-    def subscription(self, name: str | None = None) -> Callable:
-        return self.rpc.subscription(name)
+    def event(self, name: str | None = None) -> Callable:
+        return self.core.event(name)
 
     # ── Lifecycle hooks ──────────────────────────────────────────────────
 
     def on_connect(self, cb: Callable[[RpcConnection], Awaitable[None] | None]) -> None:
-        self.rpc.on_connect(cb)
+        self.core.on_connect(cb)
 
-    def on_disconnect(self, cb: Callable[[RpcConnection], Awaitable[None] | None]) -> None:
-        self.rpc.on_disconnect(cb)
+    def on_disconnect(
+        self, cb: Callable[[RpcConnection], Awaitable[None] | None]
+    ) -> None:
+        self.core.on_disconnect(cb)
 
     # ── Connection access ────────────────────────────────────────────────
 
     def get_connections(self, role: str | None = None) -> list[RpcConnection]:
-        return self.rpc.get_connections(role)
+        return self.core.get_connections(role)
 
     # ── Broadcast ────────────────────────────────────────────────────────
 
     async def broadcast(
         self, method: str, params: Any = None, *, role: str | None = None
     ) -> None:
-        await self.rpc.broadcast(method, params, role=role)
+        await self.core.broadcast(method, params, role=role)
 
     async def broadcast_except(
         self, method: str, params: Any = None, *, exclude: RpcConnection | None = None
     ) -> None:
-        await self.rpc.broadcast_except(method, params, exclude=exclude)
+        await self.core.broadcast_except(method, params, exclude=exclude)

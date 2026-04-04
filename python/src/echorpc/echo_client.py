@@ -49,48 +49,48 @@ class EchoClient:
             initial_reconnect_delay=initial_reconnect_delay,
             auto_reconnect=auto_reconnect,
         )
-        self.rpc = RpcClient(self.ws, timeout=timeout)
+        self.core = RpcClient(self.ws, timeout=timeout)
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
     @property
     def connected(self) -> bool:
-        return self.rpc.connected
+        return self.core.connected
 
     @property
     def on_connect(self) -> Callable[[], Any] | None:
-        return self.rpc.on_connect
+        return self.core.on_connect
 
     @on_connect.setter
     def on_connect(self, cb: Callable[[], Any] | None) -> None:
-        self.rpc.on_connect = cb
+        self.core.on_connect = cb
 
     @property
     def on_disconnect(self) -> Callable[[], Any] | None:
-        return self.rpc.on_disconnect
+        return self.core.on_disconnect
 
     @on_disconnect.setter
     def on_disconnect(self, cb: Callable[[], Any] | None) -> None:
-        self.rpc.on_disconnect = cb
+        self.core.on_disconnect = cb
 
     async def connect(self, timeout: float = DEFAULT_CONNECT_TIMEOUT) -> None:
-        await self.rpc.connect(timeout=timeout)
+        await self.core.connect(timeout=timeout)
 
     async def disconnect(self) -> None:
-        await self.rpc.disconnect()
+        await self.core.disconnect()
 
     # ── RPC methods ──────────────────────────────────────────────────────
 
     def register(self, method: str, handler: Handler) -> None:
-        self.rpc.register(method, handler)
+        self.core.register(method, handler)
 
     def unregister(self, method: str) -> None:
-        self.rpc.unregister(method)
+        self.core.unregister(method)
 
     async def request(
         self, method: str, params: Any = None, *, timeout: float | None = None
     ) -> Any:
-        return await self.rpc.request(method, params, timeout=timeout)
+        return await self.core.request(method, params, timeout=timeout)
 
     async def batch_request(
         self,
@@ -98,15 +98,15 @@ class EchoClient:
         *,
         timeout: float | None = None,
     ) -> list[Any]:
-        return await self.rpc.batch_request(calls, timeout=timeout)
+        return await self.core.batch_request(calls, timeout=timeout)
 
     # ── Pub/Sub ──────────────────────────────────────────────────────────
 
     def subscribe(self, method: str, callback: EventCallback) -> None:
-        self.rpc.subscribe(method, callback)
+        self.core.subscribe(method, callback)
 
     def unsubscribe(self, method: str, callback: EventCallback) -> None:
-        self.rpc.unsubscribe(method, callback)
+        self.core.unsubscribe(method, callback)
 
     async def publish(self, method: str, params: Any = None) -> None:
-        await self.rpc.publish(method, params)
+        await self.core.publish(method, params)

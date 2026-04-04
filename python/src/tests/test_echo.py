@@ -73,11 +73,11 @@ class TestDecorators:
     async def setup(self):
         self.server = EchoServer(host="127.0.0.1", port=0, ping_interval=300)
 
-        @self.server.method("greet")
+        @self.server.rpc("greet")
         def greet(params):
             return f"hello {params['name']}"
 
-        @self.server.method()
+        @self.server.rpc()
         def ping_test():
             return "pong"
 
@@ -109,7 +109,7 @@ class TestPubSub:
     async def setup(self):
         self.server = EchoServer(host="127.0.0.1", port=0, ping_interval=300)
 
-        @self.server.subscription("chat")
+        @self.server.event("chat")
         async def on_chat(conn, data):
             await self.server.broadcast("chat", data)
 
@@ -153,10 +153,12 @@ class TestBatchRequests:
     async def test_batch_request(self):
         client = make_client(self.port)
         await client.connect()
-        results = await client.batch_request([
-            ("add", {"a": 1, "b": 2}),
-            ("add", {"a": 3, "b": 4}),
-        ])
+        results = await client.batch_request(
+            [
+                ("add", {"a": 1, "b": 2}),
+                ("add", {"a": 3, "b": 4}),
+            ]
+        )
         assert results == [{"sum": 3}, {"sum": 7}]
         await client.disconnect()
 
@@ -208,8 +210,8 @@ class TestUnderlyingAccess:
     async def test_ws_and_rpc_exposed(self):
         server = EchoServer(host="127.0.0.1", port=0, ping_interval=300)
         assert server.ws is not None
-        assert server.rpc is not None
+        assert server.core is not None
 
         client = make_client(9999)
         assert client.ws is not None
-        assert client.rpc is not None
+        assert client.core is not None

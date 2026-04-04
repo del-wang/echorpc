@@ -68,7 +68,7 @@ class RpcServer:
     def unregister(self, method: str) -> None:
         self._global_handlers.pop(method, None)
 
-    def method(self, name: str | None = None) -> Callable:
+    def rpc(self, name: str | None = None) -> Callable:
         """Decorator to register an RPC method."""
 
         def decorator(fn: ServerHandler) -> ServerHandler:
@@ -90,7 +90,7 @@ class RpcServer:
         if cbs and callback in cbs:
             cbs.remove(callback)
 
-    def subscription(self, name: str | None = None) -> Callable:
+    def event(self, name: str | None = None) -> Callable:
         """Decorator to register a notification subscriber."""
 
         def decorator(fn: ServerEventCallback) -> ServerEventCallback:

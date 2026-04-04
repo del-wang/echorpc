@@ -62,7 +62,7 @@ class TestRpcHandlers:
         await asyncio.sleep(0.01)
         assert last_sent() == {"jsonrpc": "2.0", "id": "1", "result": {"x": 1}}
 
-    async def test_method_not_found_for_unknown_method(self):
+    async def test_method_not_found_for_unknown_rpc(self):
         create_router()
         await router.dispatch_message(
             json.dumps({"jsonrpc": "2.0", "id": "2", "method": "unknown"})

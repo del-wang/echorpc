@@ -22,9 +22,9 @@ pip install echorpc
 - **Auto-reconnect** — exponential backoff, handlers and subscriptions preserved
 - **Broadcast** — send to all connections, filter by role, or exclude specific peers
 
-## Server
+## TypeScript
 
-**TypeScript**
+### Server
 
 ```ts
 import { EchoServer } from "echorpc";
@@ -34,8 +34,8 @@ const server = new EchoServer({
   authHandler: (p) => p.token === "secret",
 });
 
-// Handlers support flexible signatures: (conn, params), (params), or ()
-server.register("add", (conn, p: { a: number; b: number }) => ({
+// Register RPC handlers
+server.register("add", (p: { a: number; b: number }) => ({
   sum: p.a + p.b,
 }));
 server.register("health", () => "ok");
@@ -53,38 +53,7 @@ server.subscribe("chat", async (conn, data) => {
 await server.start();
 ```
 
-**Python**
-
-```python
-from echorpc import EchoServer
-
-server = EchoServer(port=9100, auth_handler=lambda p: p["token"] == "secret")
-
-# Handlers support flexible signatures: (conn, params), (params), or ()
-@server.method("add")
-def add(params):
-    return {"sum": params["a"] + params["b"]}
-
-@server.method("health")
-def health():
-    return "ok"
-
-# Use (conn, params) when you need the connection
-@server.method("ask.client")
-async def ask_client(conn, params):
-    return await conn.request("client.compute", params)
-
-# Pub/Sub — broadcast incoming messages to all clients
-@server.subscription("chat")
-async def on_chat(conn, data):
-    await server.broadcast("chat", data)
-
-await server.start()
-```
-
-## Client
-
-**TypeScript (Node.js)**
+### Client (Node.js)
 
 ```ts
 import WebSocket from "ws";
@@ -113,7 +82,9 @@ client.subscribe("chat", (data) => console.log(data));
 client.publish("chat", { text: "hello" });
 ```
 
-**TypeScript (Browser)** — no `WebSocket` import needed, uses the native one.
+### Client (Browser)
+
+No `WebSocket` import needed — uses the native one.
 
 ```ts
 import { EchoClient } from "echorpc";
@@ -122,7 +93,38 @@ const client = new EchoClient("ws://localhost:9100", { token: "secret" });
 await client.connect();
 ```
 
-**Python**
+## Python
+
+### Server
+
+```python
+from echorpc import EchoServer
+
+server = EchoServer(port=9100, auth_handler=lambda p: p["token"] == "secret")
+
+# Handlers support flexible signatures: (conn, params), (params), or ()
+@server.rpc("add")
+def add(params):
+    return {"sum": params["a"] + params["b"]}
+
+@server.rpc("health")
+def health():
+    return "ok"
+
+# Use (conn, params) when you need the connection
+@server.rpc("ask.client")
+async def ask_client(conn, params):
+    return await conn.request("client.compute", params)
+
+# Pub/Sub — broadcast incoming messages to all clients
+@server.event("chat")
+async def on_chat(conn, data):
+    await server.broadcast("chat", data)
+
+await server.start()
+```
+
+### Client
 
 ```python
 from echorpc import EchoClient
@@ -145,33 +147,6 @@ client.register("client.compute", lambda p: p["x"] * 2)
 # Pub/Sub
 client.subscribe("chat", lambda data: print(data))
 await client.publish("chat", {"text": "hello"})
-```
-
-## Advanced: Decoupled Transport
-
-For custom transports or fine-grained control, compose `RpcServer`/`RpcClient` with any transport manually.
-
-```ts
-import { RpcServer, WsServer, RpcClient, WsClient } from "echorpc";
-
-// Server
-const ws = new WsServer({ port: 9100 });
-const server = new RpcServer(ws);
-
-// Client
-const transport = new WsClient("ws://localhost:9100", { WebSocket });
-const client = new RpcClient(transport);
-```
-
-```python
-from echorpc import RpcServer, WsServer, RpcClient, WsClient
-
-# Server
-ws = WsServer(port=9100)
-server = RpcServer(ws)
-
-# Client
-client = RpcClient(WsClient("ws://localhost:9100"))
 ```
 
 ## Error Codes

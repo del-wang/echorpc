@@ -165,7 +165,7 @@ class TestBidirectionalRpc:
         yield
         await self.server.stop()
 
-    async def test_server_requests_client_method(self):
+    async def test_server_requests_client_rpc(self):
         client = make_client(self.port, role="node")
         client.register("client.ping", lambda params: "pong")
         await client.connect()
@@ -610,7 +610,9 @@ class TestPingPong:
         """Server closes connection when client never sends pong."""
         import websockets
 
-        ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=0.1, pong_timeout=0.2)
+        ws_server = WsServer(
+            host="127.0.0.1", port=0, ping_interval=0.1, pong_timeout=0.2
+        )
         server = RpcServer(ws_server)
         await server.start()
         port = server.address[1]
@@ -681,7 +683,9 @@ class TestPingPong:
 
     async def test_normal_ping_pong_keeps_alive(self):
         """Connection stays alive with normal ping/pong cycles."""
-        ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=0.1, pong_timeout=0.2)
+        ws_server = WsServer(
+            host="127.0.0.1", port=0, ping_interval=0.1, pong_timeout=0.2
+        )
         server = RpcServer(ws_server)
         server.register("echo", lambda conn, p: p)
         await server.start()
@@ -868,9 +872,9 @@ class TestServerDecorators:
         await self.server.stop()
 
     async def test_method_decorator_with_name(self):
-        """@server.method("name") registers an RPC method."""
+        """@server.rpc("name") registers an RPC method."""
 
-        @self.server.method("add")
+        @self.server.rpc("add")
         def add(conn, params):
             return {"sum": params["a"] + params["b"]}
 
@@ -884,9 +888,9 @@ class TestServerDecorators:
         await client.disconnect()
 
     async def test_method_decorator_infers_name(self):
-        """@server.method() uses function name as method name."""
+        """@server.rpc() uses function name as method name."""
 
-        @self.server.method()
+        @self.server.rpc()
         def echo(conn, params):
             return params
 
@@ -902,7 +906,7 @@ class TestServerDecorators:
     async def test_method_decorator_async_handler(self):
         """@server.method works with async handlers."""
 
-        @self.server.method("compute")
+        @self.server.rpc("compute")
         async def compute(conn, params):
             await asyncio.sleep(0.01)
             return {"result": params["x"] * 2}
@@ -917,10 +921,10 @@ class TestServerDecorators:
         await client.disconnect()
 
     async def test_subscription_decorator_with_name(self):
-        """@server.subscription("name") registers a notification subscriber."""
+        """@server.event("name") registers a notification subscriber."""
         received = []
 
-        @self.server.subscription("chat")
+        @self.server.event("chat")
         def on_chat(conn, data):
             received.append({"data": data, "role": conn.meta.get("role")})
 
@@ -936,10 +940,10 @@ class TestServerDecorators:
         await client.disconnect()
 
     async def test_subscription_decorator_infers_name(self):
-        """@server.subscription() uses function name as event name."""
+        """@server.event() uses function name as event name."""
         received = []
 
-        @self.server.subscription()
+        @self.server.event()
         def on_event(conn, data):
             received.append(data)
 
@@ -959,7 +963,7 @@ class TestServerDecorators:
     async def test_method_params_only(self):
         """Handler with single param receives only params (no conn)."""
 
-        @self.server.method("double")
+        @self.server.rpc("double")
         def double(params):
             return {"result": params["x"] * 2}
 
@@ -975,7 +979,7 @@ class TestServerDecorators:
     async def test_method_no_args(self):
         """Handler with no params works."""
 
-        @self.server.method("health")
+        @self.server.rpc("health")
         def health():
             return "ok"
 
@@ -991,7 +995,7 @@ class TestServerDecorators:
     async def test_method_async_params_only(self):
         """Async handler with single param."""
 
-        @self.server.method("async_double")
+        @self.server.rpc("async_double")
         async def async_double(params):
             await asyncio.sleep(0.01)
             return {"result": params["x"] * 2}
@@ -1009,7 +1013,7 @@ class TestServerDecorators:
         """Subscription callback with single param receives only data."""
         received = []
 
-        @self.server.subscription("notify")
+        @self.server.event("notify")
         def on_notify(data):
             received.append(data)
 
@@ -1028,7 +1032,7 @@ class TestServerDecorators:
         """Subscription callback with no params works."""
         count = []
 
-        @self.server.subscription("tick")
+        @self.server.event("tick")
         def on_tick():
             count.append(1)
 
