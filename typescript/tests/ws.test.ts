@@ -672,6 +672,8 @@ describe("TS Server: Ping/Pong heartbeat", () => {
 
 		// Wait for server ping (100ms) + pong timeout (200ms) — server should close it
 		await closed;
+		// Allow server-side cleanup to complete
+		await new Promise((r) => setTimeout(r, 50));
 
 		expect(srv.getConnections().length).toBe(0);
 
