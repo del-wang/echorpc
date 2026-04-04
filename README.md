@@ -22,6 +22,62 @@ pip install echorpc
 - **Auto-reconnect** — exponential backoff, handlers and subscriptions preserved
 - **Broadcast** — send to all connections, filter by role, or exclude specific peers
 
+## Python
+
+### Server
+
+```python
+from echorpc import EchoServer
+
+server = EchoServer(port=9100, auth_handler=lambda p: p["token"] == "secret")
+
+# Handlers support flexible signatures: (conn, params), (params), or ()
+@server.command("add")
+def add(params):
+    return {"sum": params["a"] + params["b"]}
+
+@server.command("health")
+def health():
+    return "ok"
+
+# Use (conn, params) when you need the connection
+@server.command("ask.client")
+async def ask_client(conn, params):
+    return await conn.request("client.compute", params)
+
+# Pub/Sub — broadcast incoming messages to all clients
+@server.event("chat")
+async def on_chat(conn, data):
+    await server.broadcast("chat", data)
+
+await server.start()
+```
+
+### Client
+
+```python
+from echorpc import EchoClient
+
+client = EchoClient("ws://localhost:9100", token="secret")
+await client.connect()
+
+# RPC call
+result = await client.request("add", {"a": 1, "b": 2})
+
+# Batch
+results = await client.batch_request([
+    ("add", {"a": 1, "b": 2}),
+    ("add", {"a": 3, "b": 4}),
+])
+
+# Register a method the server can call back
+client.register("client.compute", lambda p: p["x"] * 2)
+
+# Pub/Sub
+client.subscribe("chat", lambda data: print(data))
+await client.publish("chat", {"text": "hello"})
+```
+
 ## TypeScript
 
 ### Server
@@ -91,62 +147,6 @@ import { EchoClient } from "echorpc";
 
 const client = new EchoClient("ws://localhost:9100", { token: "secret" });
 await client.connect();
-```
-
-## Python
-
-### Server
-
-```python
-from echorpc import EchoServer
-
-server = EchoServer(port=9100, auth_handler=lambda p: p["token"] == "secret")
-
-# Handlers support flexible signatures: (conn, params), (params), or ()
-@server.rpc("add")
-def add(params):
-    return {"sum": params["a"] + params["b"]}
-
-@server.rpc("health")
-def health():
-    return "ok"
-
-# Use (conn, params) when you need the connection
-@server.rpc("ask.client")
-async def ask_client(conn, params):
-    return await conn.request("client.compute", params)
-
-# Pub/Sub — broadcast incoming messages to all clients
-@server.event("chat")
-async def on_chat(conn, data):
-    await server.broadcast("chat", data)
-
-await server.start()
-```
-
-### Client
-
-```python
-from echorpc import EchoClient
-
-client = EchoClient("ws://localhost:9100", token="secret")
-await client.connect()
-
-# RPC call
-result = await client.request("add", {"a": 1, "b": 2})
-
-# Batch
-results = await client.batch_request([
-    ("add", {"a": 1, "b": 2}),
-    ("add", {"a": 3, "b": 4}),
-])
-
-# Register a method the server can call back
-client.register("client.compute", lambda p: p["x"] * 2)
-
-# Pub/Sub
-client.subscribe("chat", lambda data: print(data))
-await client.publish("chat", {"text": "hello"})
 ```
 
 ## Error Codes

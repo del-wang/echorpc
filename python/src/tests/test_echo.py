@@ -73,11 +73,11 @@ class TestDecorators:
     async def setup(self):
         self.server = EchoServer(host="127.0.0.1", port=0, ping_interval=300)
 
-        @self.server.rpc("greet")
+        @self.server.command("greet")
         def greet(params):
             return f"hello {params['name']}"
 
-        @self.server.rpc()
+        @self.server.command()
         def ping_test():
             return "pong"
 

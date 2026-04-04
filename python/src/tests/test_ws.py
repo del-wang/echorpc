@@ -165,7 +165,7 @@ class TestBidirectionalRpc:
         yield
         await self.server.stop()
 
-    async def test_server_requests_client_rpc(self):
+    async def test_server_requests_client_command(self):
         client = make_client(self.port, role="node")
         client.register("client.ping", lambda params: "pong")
         await client.connect()
@@ -872,9 +872,9 @@ class TestServerDecorators:
         await self.server.stop()
 
     async def test_method_decorator_with_name(self):
-        """@server.rpc("name") registers an RPC method."""
+        """@server.command("name") registers an RPC method."""
 
-        @self.server.rpc("add")
+        @self.server.command("add")
         def add(conn, params):
             return {"sum": params["a"] + params["b"]}
 
@@ -888,9 +888,9 @@ class TestServerDecorators:
         await client.disconnect()
 
     async def test_method_decorator_infers_name(self):
-        """@server.rpc() uses function name as method name."""
+        """@server.command() uses function name as method name."""
 
-        @self.server.rpc()
+        @self.server.command()
         def echo(conn, params):
             return params
 
@@ -906,7 +906,7 @@ class TestServerDecorators:
     async def test_method_decorator_async_handler(self):
         """@server.method works with async handlers."""
 
-        @self.server.rpc("compute")
+        @self.server.command("compute")
         async def compute(conn, params):
             await asyncio.sleep(0.01)
             return {"result": params["x"] * 2}
@@ -963,7 +963,7 @@ class TestServerDecorators:
     async def test_method_params_only(self):
         """Handler with single param receives only params (no conn)."""
 
-        @self.server.rpc("double")
+        @self.server.command("double")
         def double(params):
             return {"result": params["x"] * 2}
 
@@ -979,7 +979,7 @@ class TestServerDecorators:
     async def test_method_no_args(self):
         """Handler with no params works."""
 
-        @self.server.rpc("health")
+        @self.server.command("health")
         def health():
             return "ok"
 
@@ -995,7 +995,7 @@ class TestServerDecorators:
     async def test_method_async_params_only(self):
         """Async handler with single param."""
 
-        @self.server.rpc("async_double")
+        @self.server.command("async_double")
         async def async_double(params):
             await asyncio.sleep(0.01)
             return {"result": params["x"] * 2}

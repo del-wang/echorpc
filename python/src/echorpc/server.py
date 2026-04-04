@@ -68,7 +68,7 @@ class RpcServer:
     def unregister(self, method: str) -> None:
         self._global_handlers.pop(method, None)
 
-    def rpc(self, name: str | None = None) -> Callable:
+    def command(self, name: str | None = None) -> Callable:
         """Decorator to register an RPC method."""
 
         def decorator(fn: ServerHandler) -> ServerHandler:

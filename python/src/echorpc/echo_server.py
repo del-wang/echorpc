@@ -60,8 +60,8 @@ class EchoServer:
     def unregister(self, method: str) -> None:
         self.core.unregister(method)
 
-    def rpc(self, name: str | None = None) -> Callable:
-        return self.core.rpc(name)
+    def command(self, name: str | None = None) -> Callable:
+        return self.core.command(name)
 
     # ── Pub/Sub Registration ─────────────────────────────────────────────
 
