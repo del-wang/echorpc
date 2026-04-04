@@ -32,19 +32,19 @@ class TestBasicRpc:
     async def setup(self):
         ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=300)
         self.server = RpcServer(ws_server)
-        self.server.register("echo", lambda conn, params: params)
+        self.server.register("echo", lambda params, conn: params)
         self.server.register(
-            "add", lambda conn, params: {"sum": params["a"] + params["b"]}
+            "add", lambda params, conn: {"sum": params["a"] + params["b"]}
         )
-        self.server.register("server.time", lambda conn, params: {"time": 12345})
+        self.server.register("server.time", lambda params, conn: {"time": 12345})
         self.server.register(
             "throws",
-            lambda conn, params: (_ for _ in ()).throw(
+            lambda params, conn: (_ for _ in ()).throw(
                 RpcError(ErrorCode.INVALID_PARAMS, "bad params")
             ),
         )
 
-        async def throws_generic(conn, params):
+        async def throws_generic(params, conn):
             raise Exception("something broke")
 
         self.server.register("throws.generic", throws_generic)
@@ -117,13 +117,13 @@ class TestHandlerConn:
         self.server = RpcServer(ws_server)
         self.server.register(
             "whoami",
-            lambda conn, params: {
+            lambda params, conn: {
                 "role": conn.meta.get("role"),
                 "authenticated": conn.meta.get("authenticated"),
             },
         )
 
-        async def ask_client(conn, params):
+        async def ask_client(params, conn):
             answer = await conn.request("client.answer")
             return {"answer": answer}
 
@@ -159,7 +159,7 @@ class TestBidirectionalRpc:
     async def setup(self):
         ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=300)
         self.server = RpcServer(ws_server)
-        self.server.register("echo", lambda conn, params: params)
+        self.server.register("echo", lambda params, conn: params)
         await self.server.start()
         self.port = self.server.address[1]
         yield
@@ -220,7 +220,7 @@ class TestPubSub:
         received = []
         fresh_server.subscribe(
             "client.hello",
-            lambda conn, data: received.append(
+            lambda data, conn: received.append(
                 {
                     "data": data,
                     "role": conn.meta.get("role"),
@@ -284,18 +284,18 @@ class TestBatchRequests:
     async def setup(self):
         ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=300)
         self.server = RpcServer(ws_server)
-        self.server.register("echo", lambda conn, params: params)
+        self.server.register("echo", lambda params, conn: params)
         self.server.register(
-            "add", lambda conn, params: {"sum": params["a"] + params["b"]}
+            "add", lambda params, conn: {"sum": params["a"] + params["b"]}
         )
         self.server.register(
             "fail",
-            lambda conn, params: (_ for _ in ()).throw(
+            lambda params, conn: (_ for _ in ()).throw(
                 RpcError(-100, "intentional error")
             ),
         )
 
-        async def slow_echo(conn, params):
+        async def slow_echo(params, conn):
             import random
 
             await asyncio.sleep(random.uniform(0.01, 0.05))
@@ -455,7 +455,7 @@ class TestAuth:
             host="127.0.0.1", port=0, ping_interval=300, auth_handler=auth
         )
         server = RpcServer(ws_server)
-        server.register("echo", lambda conn, p: p)
+        server.register("echo", lambda p, conn: p)
         await server.start()
         port = server.address[1]
 
@@ -483,7 +483,7 @@ class TestAuth:
             host="127.0.0.1", port=0, ping_interval=300, auth_handler=auth
         )
         server = RpcServer(ws_server)
-        server.register("echo", lambda conn, p: p)
+        server.register("echo", lambda p, conn: p)
         await server.start()
         port = server.address[1]
 
@@ -505,7 +505,7 @@ class TestAuth:
     async def test_no_auth_handler_accepts_all(self):
         ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=300)
         server = RpcServer(ws_server)
-        server.register("echo", lambda conn, p: p)
+        server.register("echo", lambda p, conn: p)
         await server.start()
         port = server.address[1]
 
@@ -533,7 +533,7 @@ class TestAuth:
             host="127.0.0.1", port=0, ping_interval=300, auth_handler=auth
         )
         server = RpcServer(ws_server)
-        server.register("echo", lambda conn, p: p)
+        server.register("echo", lambda p, conn: p)
         await server.start()
         port = server.address[1]
 
@@ -575,7 +575,7 @@ class TestAuth:
 
         server.register(
             "whoami",
-            lambda conn, p: {
+            lambda p, conn: {
                 "user_id": conn.meta.get("user_id"),
                 "permissions": conn.meta.get("permissions"),
                 "authenticated": conn.meta.get("authenticated"),
@@ -641,7 +641,7 @@ class TestPingPong:
         """Client reconnects after server stops responding (pong timeout)."""
         ws1 = WsServer(host="127.0.0.1", port=0, ping_interval=300)
         srv1 = RpcServer(ws1)
-        srv1.register("echo", lambda conn, p: p)
+        srv1.register("echo", lambda p, conn: p)
         await srv1.start()
         port = srv1.address[1]
 
@@ -669,7 +669,7 @@ class TestPingPong:
         # Restart on same port
         ws2 = WsServer(host="127.0.0.1", port=port, ping_interval=300)
         srv2 = RpcServer(ws2)
-        srv2.register("echo", lambda conn, p: p)
+        srv2.register("echo", lambda p, conn: p)
         await srv2.start()
 
         await asyncio.wait_for(reconnected.wait(), timeout=2.0)
@@ -687,7 +687,7 @@ class TestPingPong:
             host="127.0.0.1", port=0, ping_interval=0.1, pong_timeout=0.2
         )
         server = RpcServer(ws_server)
-        server.register("echo", lambda conn, p: p)
+        server.register("echo", lambda p, conn: p)
         await server.start()
         port = server.address[1]
 
@@ -721,7 +721,7 @@ class TestAutoReconnect:
         """Client with auto_reconnect=True reconnects after server restart."""
         ws1 = WsServer(host="127.0.0.1", port=0, ping_interval=300)
         srv1 = RpcServer(ws1)
-        srv1.register("echo", lambda conn, p: p)
+        srv1.register("echo", lambda p, conn: p)
         await srv1.start()
         port = srv1.address[1]
 
@@ -753,7 +753,7 @@ class TestAutoReconnect:
         # Restart on same port
         ws2 = WsServer(host="127.0.0.1", port=port, ping_interval=300)
         srv2 = RpcServer(ws2)
-        srv2.register("echo", lambda conn, p: p)
+        srv2.register("echo", lambda p, conn: p)
         await srv2.start()
 
         # Wait for reconnect
@@ -771,7 +771,7 @@ class TestAutoReconnect:
         ws1 = WsServer(host="127.0.0.1", port=0, ping_interval=300)
         srv1 = RpcServer(ws1)
 
-        async def ask(conn, p):
+        async def ask(p, conn):
             return await conn.request("client.double", p)
 
         srv1.register("ask", ask)
@@ -875,7 +875,7 @@ class TestServerDecorators:
         """@server.command("name") registers an RPC method."""
 
         @self.server.command("add")
-        def add(conn, params):
+        def add(params, conn):
             return {"sum": params["a"] + params["b"]}
 
         await self.server.start()
@@ -891,7 +891,7 @@ class TestServerDecorators:
         """@server.command() uses function name as method name."""
 
         @self.server.command()
-        def echo(conn, params):
+        def echo(params, conn):
             return params
 
         await self.server.start()
@@ -907,7 +907,7 @@ class TestServerDecorators:
         """@server.method works with async handlers."""
 
         @self.server.command("compute")
-        async def compute(conn, params):
+        async def compute(params, conn):
             await asyncio.sleep(0.01)
             return {"result": params["x"] * 2}
 
@@ -925,7 +925,7 @@ class TestServerDecorators:
         received = []
 
         @self.server.event("chat")
-        def on_chat(conn, data):
+        def on_chat(data, conn):
             received.append({"data": data, "role": conn.meta.get("role")})
 
         await self.server.start()
@@ -944,7 +944,7 @@ class TestServerDecorators:
         received = []
 
         @self.server.event()
-        def on_event(conn, data):
+        def on_event(data, conn):
             received.append(data)
 
         await self.server.start()

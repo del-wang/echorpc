@@ -27,8 +27,8 @@ describe("EchoServer/Client: Basic RPC", () => {
 
 	beforeAll(async () => {
 		server = new EchoServer({ port: 0 });
-		server.register("echo", (conn, params) => params);
-		server.register("add", (conn, params: { a: number; b: number }) => ({
+		server.register("echo", (params, conn) => params);
+		server.register("add", (params: { a: number; b: number }, conn) => ({
 			sum: params.a + params.b,
 		}));
 		await server.start();
@@ -82,7 +82,7 @@ describe("EchoServer/Client: Pub/Sub", () => {
 
 	beforeAll(async () => {
 		server = new EchoServer({ port: 0 });
-		server.subscribe("chat", (conn, data) => {
+		server.subscribe("chat", (data, conn) => {
 			server.broadcast("chat", data);
 		});
 		await server.start();
@@ -121,7 +121,7 @@ describe("EchoServer/Client: Batch Requests", () => {
 
 	beforeAll(async () => {
 		server = new EchoServer({ port: 0 });
-		server.register("add", (conn, params: { a: number; b: number }) => ({
+		server.register("add", (params: { a: number; b: number }, conn) => ({
 			sum: params.a + params.b,
 		}));
 		await server.start();

@@ -13,24 +13,24 @@ import type { ITransportServer } from "./transport.js";
 
 /**
  * Server-side RPC handler — flexible signatures:
- *   (conn, params) — full access
+ *   (params, conn) — full access
  *   (params)       — params only
  *   ()             — no args
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ServerRpcHandler<T = any> =
-	| ((conn: RpcConnection, params: T) => any | Promise<any>)
+	| ((params: T, conn: RpcConnection) => any | Promise<any>)
 	| ((params: T) => any | Promise<any>)
 	| (() => any | Promise<any>);
 
 /**
  * Server-side notification callback — flexible signatures:
- *   (conn, data) — full access
+ *   (data, conn) — full access
  *   (data)       — data only
  *   ()           — no args
  */
 export type ServerEventCallback<T = unknown> =
-	| ((conn: RpcConnection, data: T) => void | Promise<void>)
+	| ((data: T, conn: RpcConnection) => void | Promise<void>)
 	| ((data: T) => void | Promise<void>)
 	| (() => void | Promise<void>);
 
@@ -167,11 +167,11 @@ export class RpcServer {
 	 * Wrap a server handler based on its arity (fn.length).
 	 *   0 args → ()           — no args
 	 *   1 arg  → (params)     — params only
-	 *   2 args → (conn, params) — full access
+	 *   2 args → (params, conn) — full access
 	 */
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	private static _wrapHandler(fn: (...args: any[]) => any, conn: RpcConnection): (params: unknown) => any {
-		if (fn.length >= 2) return (params) => fn(conn, params);
+		if (fn.length >= 2) return (params) => fn(params, conn);
 		if (fn.length === 1) return (params) => fn(params);
 		return () => fn();
 	}

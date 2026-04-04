@@ -40,18 +40,18 @@ describe("TS Server: Basic RPC", () => {
 	beforeAll(async () => {
 		wsServer = new WsServer({ port: 0 });
 		server = new RpcServer(wsServer);
-		server.register("echo", (conn, params) => params);
-		server.register("add", (conn, params: { a: number; b: number }) => ({
+		server.register("echo", (params, conn) => params);
+		server.register("add", (params: { a: number; b: number }, conn) => ({
 			sum: params.a + params.b,
 		}));
-		server.register("server.time", (conn, params) => ({
+		server.register("server.time", (params, conn) => ({
 			time: Date.now(),
 			iso: new Date().toISOString(),
 		}));
-		server.register("throws", (conn, params) => {
+		server.register("throws", (params, conn) => {
 			throw new RpcError(ErrorCode.INVALID_PARAMS, "bad params");
 		});
-		server.register("throws.generic", (conn, params) => {
+		server.register("throws.generic", (params, conn) => {
 			throw new Error("something broke");
 		});
 		await server.start();
@@ -144,11 +144,11 @@ describe("TS Server: Handler conn", () => {
 	beforeAll(async () => {
 		wsServer = new WsServer({ port: 0 });
 		server = new RpcServer(wsServer);
-		server.register("whoami", (conn, params) => ({
+		server.register("whoami", (params, conn) => ({
 			role: conn.meta.role,
 			authenticated: conn.meta.authenticated,
 		}));
-		server.register("ask.client", async (conn, params) => {
+		server.register("ask.client", async (params, conn) => {
 			const answer = await conn.request<string>("client.answer");
 			return { answer };
 		});
@@ -191,7 +191,7 @@ describe("TS Server: Bidirectional RPC", () => {
 	beforeAll(async () => {
 		wsServer = new WsServer({ port: 0 });
 		server = new RpcServer(wsServer);
-		server.register("echo", (conn, params) => params);
+		server.register("echo", (params, conn) => params);
 		await server.start();
 		serverPort = server.address!.port;
 	});
@@ -263,7 +263,7 @@ describe("TS Server: Pub/Sub", () => {
 		const freshWsServer = new WsServer({ port: 0 });
 		const freshServer = new RpcServer(freshWsServer);
 		const received: Array<{ data: unknown; role: unknown }> = [];
-		freshServer.subscribe("client.hello", (conn, data) => {
+		freshServer.subscribe("client.hello", (data, conn) => {
 			received.push({ data, role: conn.meta.role });
 		});
 		await freshServer.start();
@@ -332,14 +332,14 @@ describe("TS Server: Batch requests", () => {
 	beforeAll(async () => {
 		wsServer = new WsServer({ port: 0 });
 		server = new RpcServer(wsServer);
-		server.register("echo", (conn, params) => params);
-		server.register("add", (conn, params: { a: number; b: number }) => ({
+		server.register("echo", (params, conn) => params);
+		server.register("add", (params: { a: number; b: number }, conn) => ({
 			sum: params.a + params.b,
 		}));
-		server.register("fail", (conn, params) => {
+		server.register("fail", (params, conn) => {
 			throw new RpcError(-100, "intentional error");
 		});
-		server.register("slow_echo", async (conn, params) => {
+		server.register("slow_echo", async (params, conn) => {
 			await new Promise((r) => setTimeout(r, Math.random() * 50 + 10));
 			return params;
 		});
@@ -520,7 +520,7 @@ describe("TS Server: Custom auth handler", () => {
 			authHandler: (params) => params.token === "valid-token",
 		});
 		authServer = new RpcServer(authWsServer);
-		authServer.register("echo", (conn, p) => p);
+		authServer.register("echo", (p, conn) => p);
 		await authServer.start();
 		authPort = authServer.address!.port;
 	});
@@ -565,7 +565,7 @@ describe("TS Server: Custom auth handler", () => {
 	it("should accept all connections when no auth handler", async () => {
 		const noAuthWsServer = new WsServer({ port: 0 });
 		const noAuthServer = new RpcServer(noAuthWsServer);
-		noAuthServer.register("echo", (conn, p) => p);
+		noAuthServer.register("echo", (p, conn) => p);
 		await noAuthServer.start();
 		const port = noAuthServer.address!.port;
 
@@ -621,7 +621,7 @@ describe("TS Server: Custom auth handler", () => {
 			},
 		});
 		const metaServer = new RpcServer(metaWsServer);
-		metaServer.register("whoami", (conn, _p) => ({
+		metaServer.register("whoami", (_p, conn) => ({
 			user_id: conn.meta.user_id,
 			permissions: conn.meta.permissions,
 			authenticated: conn.meta.authenticated,
@@ -683,7 +683,7 @@ describe("TS Server: Ping/Pong heartbeat", () => {
 	it("client reconnects when server stops responding", async () => {
 		const ws1 = new WsServer({ port: 0 });
 		const srv = new RpcServer(ws1);
-		srv.register("echo", (conn, p) => p);
+		srv.register("echo", (p, conn) => p);
 		await srv.start();
 		const port = srv.address!.port;
 
@@ -717,7 +717,7 @@ describe("TS Server: Ping/Pong heartbeat", () => {
 		// Restart server on same port
 		const ws2 = new WsServer({ port });
 		const srv2 = new RpcServer(ws2);
-		srv2.register("echo", (conn, p) => p);
+		srv2.register("echo", (p, conn) => p);
 		await srv2.start();
 
 		// Wait for reconnect
@@ -735,7 +735,7 @@ describe("TS Server: Ping/Pong heartbeat", () => {
 	it("normal ping/pong keeps connection alive", async () => {
 		const ws1 = new WsServer({ port: 0, pingInterval: 100, pongTimeout: 200 });
 		const srv = new RpcServer(ws1);
-		srv.register("echo", (conn, p) => p);
+		srv.register("echo", (p, conn) => p);
 		await srv.start();
 		const port = srv.address!.port;
 
@@ -770,7 +770,7 @@ describe("TS Server: Auto-reconnect", () => {
 		// Start initial server
 		const ws1 = new WsServer({ port: 0 });
 		const srv1 = new RpcServer(ws1);
-		srv1.register("echo", (conn, p) => p);
+		srv1.register("echo", (p, conn) => p);
 		await srv1.start();
 		const port = srv1.address!.port;
 
@@ -806,7 +806,7 @@ describe("TS Server: Auto-reconnect", () => {
 		// Restart a NEW server on the same port
 		const ws2 = new WsServer({ port });
 		const srv2 = new RpcServer(ws2);
-		srv2.register("echo", (conn, p) => p);
+		srv2.register("echo", (p, conn) => p);
 		await srv2.start();
 
 		// Wait for auto-reconnect (backoff starts at 50ms, max 100ms)
@@ -827,7 +827,7 @@ describe("TS Server: Auto-reconnect", () => {
 		const srv1 = new RpcServer(ws1);
 		srv1.register(
 			"ask",
-			async (conn, p) => await conn.request("client.double", p),
+			async (p, conn) => await conn.request("client.double", p),
 		);
 		await srv1.start();
 		const port = srv1.address!.port;
@@ -858,7 +858,7 @@ describe("TS Server: Auto-reconnect", () => {
 		const srv2 = new RpcServer(ws2);
 		srv2.register(
 			"ask",
-			async (conn, p) => await conn.request("client.double", p),
+			async (p, conn) => await conn.request("client.double", p),
 		);
 		await srv2.start();
 
@@ -943,10 +943,10 @@ describe("TS Server: Flexible handler signatures", () => {
 		return new RpcClient(transport);
 	}
 
-	it("register with (conn, params) — full signature", async () => {
+	it("register with (params, conn) — full signature", async () => {
 		ws = new WsServer({ port: 0 });
 		srv = new RpcServer(ws);
-		srv.register("echo", (conn: RpcConnection, params: unknown) => params);
+		srv.register("echo", (params: unknown, conn: RpcConnection) => params);
 		await srv.start();
 		port = srv.address!.port;
 
@@ -985,11 +985,11 @@ describe("TS Server: Flexible handler signatures", () => {
 		await client.disconnect();
 	});
 
-	it("subscribe with (conn, data) — full signature", async () => {
+	it("subscribe with (data, conn) — full signature", async () => {
 		const received: unknown[] = [];
 		ws = new WsServer({ port: 0 });
 		srv = new RpcServer(ws);
-		srv.subscribe("event", (conn: RpcConnection, data: unknown) => {
+		srv.subscribe("event", (data: unknown, conn: RpcConnection) => {
 			received.push({ data, role: conn.meta.role });
 		});
 		await srv.start();

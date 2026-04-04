@@ -141,13 +141,13 @@ class RpcServer:
         """Wrap a server handler based on its arity.
 
         Supports three signature styles:
-          - (conn, params) — full access
+          - (params, conn) — full access
           - (params,)      — params only
           - ()             — no args
         """
         nparams = len(inspect.signature(fn).parameters)
         if nparams >= 2:
-            return lambda params, _h=fn, _c=conn: _h(_c, params)
+            return lambda params, _h=fn, _c=conn: _h(params, _c)
         elif nparams == 1:
             return lambda params, _h=fn: _h(params)
         else:

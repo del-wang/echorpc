@@ -27,9 +27,9 @@ class TestBasicRpc:
     @pytest.fixture(autouse=True)
     async def setup(self):
         self.server = EchoServer(host="127.0.0.1", port=0, ping_interval=300)
-        self.server.register("echo", lambda conn, params: params)
+        self.server.register("echo", lambda params, conn: params)
         self.server.register(
-            "add", lambda conn, params: {"sum": params["a"] + params["b"]}
+            "add", lambda params, conn: {"sum": params["a"] + params["b"]}
         )
         await self.server.start()
         self.port = self.server.address[1]
@@ -110,7 +110,7 @@ class TestPubSub:
         self.server = EchoServer(host="127.0.0.1", port=0, ping_interval=300)
 
         @self.server.event("chat")
-        async def on_chat(conn, data):
+        async def on_chat(data, conn):
             await self.server.broadcast("chat", data)
 
         await self.server.start()
@@ -143,7 +143,7 @@ class TestBatchRequests:
     async def setup(self):
         self.server = EchoServer(host="127.0.0.1", port=0, ping_interval=300)
         self.server.register(
-            "add", lambda conn, params: {"sum": params["a"] + params["b"]}
+            "add", lambda params, conn: {"sum": params["a"] + params["b"]}
         )
         await self.server.start()
         self.port = self.server.address[1]

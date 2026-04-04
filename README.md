@@ -31,7 +31,7 @@ from echorpc import EchoServer
 
 server = EchoServer(port=9100, auth_handler=lambda p: p["token"] == "secret")
 
-# Handlers support flexible signatures: (conn, params), (params), or ()
+# Register RPC commands
 @server.command("add")
 def add(params):
     return {"sum": params["a"] + params["b"]}
@@ -40,15 +40,10 @@ def add(params):
 def health():
     return "ok"
 
-# Use (conn, params) when you need the connection
-@server.command("ask.client")
-async def ask_client(conn, params):
-    return await conn.request("client.compute", params)
-
-# Pub/Sub — broadcast incoming messages to all clients
+# Sub
 @server.event("chat")
-async def on_chat(conn, data):
-    await server.broadcast("chat", data)
+async def on_chat(data):
+    print()
 
 await server.start()
 ```
@@ -90,19 +85,16 @@ const server = new EchoServer({
   authHandler: (p) => p.token === "secret",
 });
 
-// Register RPC handlers
+// Register RPC commands
 server.register("add", (p: { a: number; b: number }) => ({
   sum: p.a + p.b,
 }));
+
 server.register("health", () => "ok");
 
-// Use (conn, params) when you need the connection
-server.register("ask.client", async (conn, p) => {
-  return await conn.request("client.compute", p);
-});
 
 // Pub/Sub — broadcast incoming messages to all clients
-server.subscribe("chat", async (conn, data) => {
+server.subscribe("chat", async (data) => {
   server.broadcast("chat", data);
 });
 
