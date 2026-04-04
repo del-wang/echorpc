@@ -255,7 +255,7 @@ describe("TS Server: Pub/Sub", () => {
 		await client.connect();
 
 		server.broadcast("test.event", { x: 42 });
-		await new Promise((r) => setTimeout(r, 200));
+		await new Promise((r) => setTimeout(r, 50));
 		expect(events).toEqual([{ x: 42 }]);
 	});
 
@@ -280,7 +280,7 @@ describe("TS Server: Pub/Sub", () => {
 		await c.connect();
 
 		c.publish("client.hello", { from: "test" });
-		await new Promise((r) => setTimeout(r, 200));
+		await new Promise((r) => setTimeout(r, 50));
 
 		expect(received).toEqual([{ data: { from: "test" }, role: "web" }]);
 
@@ -297,7 +297,7 @@ describe("TS Server: Pub/Sub", () => {
 		conn.subscribe("client.hello", (data) => received.push(data));
 
 		client.publish("client.hello", { from: "test" });
-		await new Promise((r) => setTimeout(r, 200));
+		await new Promise((r) => setTimeout(r, 50));
 		expect(received).toEqual([{ from: "test" }]);
 	});
 
@@ -314,7 +314,7 @@ describe("TS Server: Pub/Sub", () => {
 
 		const conns = server.getConnections("web");
 		server.broadcastExcept("selective", { msg: "hi" }, conns[0]);
-		await new Promise((r) => setTimeout(r, 200));
+		await new Promise((r) => setTimeout(r, 50));
 
 		const totalReceived = events1.length + events2.length;
 		expect(totalReceived).toBe(1);
@@ -443,7 +443,7 @@ describe("TS Server: Connection management", () => {
 		expect(server.getConnections().length).toBeGreaterThanOrEqual(1);
 
 		await client.disconnect();
-		await new Promise((r) => setTimeout(r, 200));
+		await new Promise((r) => setTimeout(r, 50));
 
 		expect(disconnectCount.length).toBeGreaterThanOrEqual(1);
 		expect(disconnectCount.some((c) => c.meta.role === "node")).toBe(true);
@@ -496,7 +496,7 @@ describe("TS Server: Connection management", () => {
 		await Promise.all(clients.map((c) => c.connect()));
 
 		server.broadcast("multi.test", { n: 1 }, "web");
-		await new Promise((r) => setTimeout(r, 200));
+		await new Promise((r) => setTimeout(r, 50));
 
 		for (const evList of events) {
 			expect(evList).toEqual([{ n: 1 }]);
@@ -655,8 +655,8 @@ describe("TS Server: Custom auth handler", () => {
 
 describe("TS Server: Ping/Pong heartbeat", () => {
 	it("server disconnects unresponsive client", async () => {
-		// Server with short ping interval
-		const ws1 = new WsServer({ port: 0, pingInterval: 200 });
+		// Server with short ping interval and pong timeout
+		const ws1 = new WsServer({ port: 0, pingInterval: 100, pongTimeout: 200 });
 		const srv = new RpcServer(ws1);
 		await srv.start();
 		const port = srv.address!.port;
@@ -670,13 +670,13 @@ describe("TS Server: Ping/Pong heartbeat", () => {
 			raw.onopen = () => resolve();
 		});
 
-		// Wait for server ping (200ms) + pong timeout (5s) — server should close it
+		// Wait for server ping (100ms) + pong timeout (200ms) — server should close it
 		await closed;
 
 		expect(srv.getConnections().length).toBe(0);
 
 		await srv.stop();
-	}, 10_000);
+	});
 
 	it("client reconnects when server stops responding", async () => {
 		const ws1 = new WsServer({ port: 0 });
@@ -685,13 +685,15 @@ describe("TS Server: Ping/Pong heartbeat", () => {
 		await srv.start();
 		const port = srv.address!.port;
 
-		// Client with short ping interval
+		// Client with short ping interval and pong timeout
 		const transport = new WsClient(`ws://127.0.0.1:${port}`, {
 			token: "t",
 			role: "web",
 			autoReconnect: true,
-			maxReconnectDelay: 500,
-			pingInterval: 200,
+			maxReconnectDelay: 100,
+			initialReconnectDelay: 50,
+			pingInterval: 100,
+			pongTimeout: 200,
 			WebSocket: WS,
 		});
 		const client = new RpcClient(transport);
@@ -704,11 +706,11 @@ describe("TS Server: Ping/Pong heartbeat", () => {
 			reconnected = true;
 		};
 
-		// Stop server — client's pong timeout will fire and trigger reconnect
+		// Stop server — client's pong timeout (200ms) will fire and trigger reconnect
 		await srv.stop();
 
-		// Wait for pong timeout (5s) + reconnect backoff + margin
-		await new Promise((r) => setTimeout(r, 7_000));
+		// Wait for pong timeout (200ms) + reconnect backoff
+		await new Promise((r) => setTimeout(r, 500));
 
 		// Restart server on same port
 		const ws2 = new WsServer({ port });
@@ -717,7 +719,7 @@ describe("TS Server: Ping/Pong heartbeat", () => {
 		await srv2.start();
 
 		// Wait for reconnect
-		await new Promise((r) => setTimeout(r, 2_000));
+		await new Promise((r) => setTimeout(r, 500));
 		expect(reconnected).toBe(true);
 		expect(client.connected).toBe(true);
 
@@ -726,10 +728,10 @@ describe("TS Server: Ping/Pong heartbeat", () => {
 
 		await client.disconnect();
 		await srv2.stop();
-	}, 15_000);
+	});
 
 	it("normal ping/pong keeps connection alive", async () => {
-		const ws1 = new WsServer({ port: 0, pingInterval: 200 });
+		const ws1 = new WsServer({ port: 0, pingInterval: 100, pongTimeout: 200 });
 		const srv = new RpcServer(ws1);
 		srv.register("echo", (conn, p) => p);
 		await srv.start();
@@ -739,14 +741,15 @@ describe("TS Server: Ping/Pong heartbeat", () => {
 			token: "t",
 			role: "web",
 			autoReconnect: false,
-			pingInterval: 200,
+			pingInterval: 100,
+			pongTimeout: 200,
 			WebSocket: WS,
 		});
 		const client = new RpcClient(transport);
 		await client.connect();
 
-		// Wait through several ping/pong cycles
-		await new Promise((r) => setTimeout(r, 1_500));
+		// Wait through several ping/pong cycles (100ms each)
+		await new Promise((r) => setTimeout(r, 500));
 
 		// Connection should still be alive
 		expect(client.connected).toBe(true);
@@ -774,7 +777,8 @@ describe("TS Server: Auto-reconnect", () => {
 			token: "t",
 			role: "web",
 			autoReconnect: true,
-			maxReconnectDelay: 500,
+			maxReconnectDelay: 100,
+			initialReconnectDelay: 50,
 			pingInterval: 300_000,
 			WebSocket: WS,
 		});
@@ -794,7 +798,7 @@ describe("TS Server: Auto-reconnect", () => {
 
 		// Stop the server — client should detect disconnect
 		await srv1.stop();
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 100));
 		expect(client.connected).toBe(false);
 
 		// Restart a NEW server on the same port
@@ -803,8 +807,8 @@ describe("TS Server: Auto-reconnect", () => {
 		srv2.register("echo", (conn, p) => p);
 		await srv2.start();
 
-		// Wait for auto-reconnect (backoff starts at 200ms, max 500ms)
-		await new Promise((r) => setTimeout(r, 2000));
+		// Wait for auto-reconnect (backoff starts at 50ms, max 100ms)
+		await new Promise((r) => setTimeout(r, 500));
 		expect(reconnected).toBe(true);
 		expect(client.connected).toBe(true);
 
@@ -830,7 +834,8 @@ describe("TS Server: Auto-reconnect", () => {
 			token: "t",
 			role: "node",
 			autoReconnect: true,
-			maxReconnectDelay: 500,
+			maxReconnectDelay: 100,
+			initialReconnectDelay: 50,
 			pingInterval: 300_000,
 			WebSocket: WS,
 		});
@@ -845,7 +850,7 @@ describe("TS Server: Auto-reconnect", () => {
 
 		// Restart server
 		await srv1.stop();
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 100));
 
 		const ws2 = new WsServer({ port });
 		const srv2 = new RpcServer(ws2);
@@ -856,7 +861,7 @@ describe("TS Server: Auto-reconnect", () => {
 		await srv2.start();
 
 		// Wait for reconnect
-		await new Promise((r) => setTimeout(r, 2000));
+		await new Promise((r) => setTimeout(r, 500));
 		expect(client.connected).toBe(true);
 
 		// Verify handler still works after reconnect
@@ -877,7 +882,8 @@ describe("TS Server: Auto-reconnect", () => {
 			token: "t",
 			role: "web",
 			autoReconnect: true,
-			maxReconnectDelay: 500,
+			maxReconnectDelay: 100,
+			initialReconnectDelay: 50,
 			pingInterval: 300_000,
 			WebSocket: WS,
 		});
@@ -888,24 +894,24 @@ describe("TS Server: Auto-reconnect", () => {
 
 		// Broadcast before restart
 		srv1.broadcast("news", { n: 1 });
-		await new Promise((r) => setTimeout(r, 200));
+		await new Promise((r) => setTimeout(r, 50));
 		expect(events).toEqual([{ n: 1 }]);
 
 		// Restart server
 		await srv1.stop();
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 100));
 
 		const ws2 = new WsServer({ port });
 		const srv2 = new RpcServer(ws2);
 		await srv2.start();
 
 		// Wait for reconnect
-		await new Promise((r) => setTimeout(r, 2000));
+		await new Promise((r) => setTimeout(r, 500));
 		expect(client.connected).toBe(true);
 
 		// Broadcast after restart — subscription should still fire
 		srv2.broadcast("news", { n: 2 });
-		await new Promise((r) => setTimeout(r, 200));
+		await new Promise((r) => setTimeout(r, 50));
 		expect(events).toEqual([{ n: 1 }, { n: 2 }]);
 
 		await client.disconnect();

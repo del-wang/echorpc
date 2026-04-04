@@ -209,7 +209,7 @@ class TestPubSub:
         await client.connect()
 
         await self.server.broadcast("test.event", {"x": 42})
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)
         assert events == [{"x": 42}]
 
         await client.disconnect()
@@ -234,7 +234,7 @@ class TestPubSub:
         await client.connect()
 
         await client.publish("client.hello", {"from": "test"})
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)
 
         assert received == [{"data": {"from": "test"}, "role": "web"}]
 
@@ -250,7 +250,7 @@ class TestPubSub:
         conn.subscribe("client.hello", lambda data: received.append(data))
 
         await client.publish("client.hello", {"from": "test"})
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)
         assert received == [{"from": "test"}]
 
         await client.disconnect()
@@ -267,7 +267,7 @@ class TestPubSub:
 
         conns = self.server.get_connections("web")
         await self.server.broadcast_except("selective", {"msg": "hi"}, exclude=conns[0])
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)
 
         total = len(events1) + len(events2)
         assert total == 1
@@ -396,7 +396,7 @@ class TestConnectionManagement:
         assert len(self.server.get_connections()) >= 1
 
         await client.disconnect()
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)
 
         assert len(disconnected) >= 1
         assert any(c.meta.get("role") == "node" for c in disconnected)
@@ -419,7 +419,7 @@ class TestConnectionManagement:
 
         await c1.disconnect()
         await c2.disconnect()
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)
         await fresh_server.stop()
 
     async def test_multiple_web_clients(self):
@@ -433,14 +433,14 @@ class TestConnectionManagement:
             clients.append(c)
 
         await self.server.broadcast("multi.test", {"n": 1}, role="web")
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)
 
         for ev_list in events:
             assert ev_list == [{"n": 1}]
 
         for c in clients:
             await c.disconnect()
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)
 
 
 # ── Auth ────────────────────────────────────────────────────────────────
@@ -610,7 +610,7 @@ class TestPingPong:
         """Server closes connection when client never sends pong."""
         import websockets
 
-        ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=0.2)
+        ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=0.1, pong_timeout=0.2)
         server = RpcServer(ws_server)
         await server.start()
         port = server.address[1]
@@ -623,14 +623,14 @@ class TestPingPong:
 
         # Consume incoming messages (pings) until server closes the connection
         try:
-            async with asyncio.timeout(8.0):
+            async with asyncio.timeout(2.0):
                 async for _ in raw:
                     pass
         except Exception:
             pass
 
         # Allow server to finish cleanup
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.05)
         assert len(server.get_connections()) == 0
 
         await server.stop()
@@ -648,8 +648,10 @@ class TestPingPong:
             token="t",
             role="web",
             auto_reconnect=True,
-            max_reconnect_delay=0.5,
-            ping_interval=0.2,
+            max_reconnect_delay=0.1,
+            initial_reconnect_delay=0.05,
+            ping_interval=0.1,
+            pong_timeout=0.2,
         )
         client = RpcClient(transport)
         await client.connect()
@@ -658,9 +660,9 @@ class TestPingPong:
         reconnected = asyncio.Event()
         client.on_connect = lambda: reconnected.set()
 
-        # Stop server — client pong timeout will fire
+        # Stop server — client pong timeout (200ms) will fire
         await srv1.stop()
-        await asyncio.sleep(7.0)
+        await asyncio.sleep(0.5)
 
         # Restart on same port
         ws2 = WsServer(host="127.0.0.1", port=port, ping_interval=300)
@@ -668,7 +670,7 @@ class TestPingPong:
         srv2.register("echo", lambda conn, p: p)
         await srv2.start()
 
-        await asyncio.wait_for(reconnected.wait(), timeout=5.0)
+        await asyncio.wait_for(reconnected.wait(), timeout=2.0)
         assert client.connected
 
         r = await client.request("echo", {"v": 1})
@@ -679,7 +681,7 @@ class TestPingPong:
 
     async def test_normal_ping_pong_keeps_alive(self):
         """Connection stays alive with normal ping/pong cycles."""
-        ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=0.2)
+        ws_server = WsServer(host="127.0.0.1", port=0, ping_interval=0.1, pong_timeout=0.2)
         server = RpcServer(ws_server)
         server.register("echo", lambda conn, p: p)
         await server.start()
@@ -690,13 +692,14 @@ class TestPingPong:
             token="t",
             role="web",
             auto_reconnect=False,
-            ping_interval=0.2,
+            ping_interval=0.1,
+            pong_timeout=0.2,
         )
         client = RpcClient(transport)
         await client.connect()
 
-        # Wait through several ping/pong cycles
-        await asyncio.sleep(1.5)
+        # Wait through several ping/pong cycles (100ms each)
+        await asyncio.sleep(0.5)
 
         assert client.connected
         r = await client.request("echo", {"alive": True})
@@ -723,7 +726,8 @@ class TestAutoReconnect:
             token="t",
             role="web",
             auto_reconnect=True,
-            max_reconnect_delay=0.5,
+            max_reconnect_delay=0.1,
+            initial_reconnect_delay=0.05,
             ping_interval=300,
         )
         client = RpcClient(transport)
@@ -739,7 +743,7 @@ class TestAutoReconnect:
 
         # Stop server
         await srv1.stop()
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.1)
         assert not client.connected
 
         # Restart on same port
@@ -749,7 +753,7 @@ class TestAutoReconnect:
         await srv2.start()
 
         # Wait for reconnect
-        await asyncio.wait_for(reconnected.wait(), timeout=5.0)
+        await asyncio.wait_for(reconnected.wait(), timeout=2.0)
         assert client.connected
 
         r2 = await client.request("echo", {"v": 2})
@@ -775,7 +779,8 @@ class TestAutoReconnect:
             token="t",
             role="node",
             auto_reconnect=True,
-            max_reconnect_delay=0.5,
+            max_reconnect_delay=0.1,
+            initial_reconnect_delay=0.05,
             ping_interval=300,
         )
         client = RpcClient(transport)
@@ -789,14 +794,14 @@ class TestAutoReconnect:
         client.on_connect = lambda: reconnected.set()
 
         await srv1.stop()
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.1)
 
         ws2 = WsServer(host="127.0.0.1", port=port, ping_interval=300)
         srv2 = RpcServer(ws2)
         srv2.register("ask", ask)
         await srv2.start()
 
-        await asyncio.wait_for(reconnected.wait(), timeout=5.0)
+        await asyncio.wait_for(reconnected.wait(), timeout=2.0)
         assert client.connected
 
         r2 = await client.request("ask", {"x": 7})
@@ -817,7 +822,8 @@ class TestAutoReconnect:
             token="t",
             role="web",
             auto_reconnect=True,
-            max_reconnect_delay=0.5,
+            max_reconnect_delay=0.1,
+            initial_reconnect_delay=0.05,
             ping_interval=300,
         )
         client = RpcClient(transport)
@@ -826,24 +832,24 @@ class TestAutoReconnect:
         await client.connect()
 
         await srv1.broadcast("news", {"n": 1})
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)
         assert events == [{"n": 1}]
 
         reconnected = asyncio.Event()
         client.on_connect = lambda: reconnected.set()
 
         await srv1.stop()
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.1)
 
         ws2 = WsServer(host="127.0.0.1", port=port, ping_interval=300)
         srv2 = RpcServer(ws2)
         await srv2.start()
 
-        await asyncio.wait_for(reconnected.wait(), timeout=5.0)
+        await asyncio.wait_for(reconnected.wait(), timeout=2.0)
         assert client.connected
 
         await srv2.broadcast("news", {"n": 2})
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)
         assert events == [{"n": 1}, {"n": 2}]
 
         await client.disconnect()
@@ -924,7 +930,7 @@ class TestServerDecorators:
         client = make_client(port)
         await client.connect()
         await client.publish("chat", {"text": "hello"})
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)
 
         assert received == [{"data": {"text": "hello"}, "role": "web"}]
         await client.disconnect()
@@ -943,7 +949,7 @@ class TestServerDecorators:
         client = make_client(port)
         await client.connect()
         await client.publish("on_event", {"x": 1})
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)
 
         assert received == [{"x": 1}]
         await client.disconnect()

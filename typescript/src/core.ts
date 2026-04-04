@@ -104,6 +104,10 @@ export interface ClientOptions {
 	pingInterval?: number;
 	/** Max reconnect delay in ms (default: 5000) */
 	maxReconnectDelay?: number;
+	/** Initial reconnect delay in ms (default: 1000) */
+	initialReconnectDelay?: number;
+	/** Pong timeout in ms (default: 5000) */
+	pongTimeout?: number;
 	/** Enable auto-reconnect (default: true) */
 	autoReconnect?: boolean;
 	/**

@@ -11,7 +11,7 @@ import websockets
 from websockets.asyncio.server import ServerConnection
 from websockets.http11 import Response
 
-from ..core import DEFAULT_PING_INTERVAL
+from ..core import DEFAULT_PING_INTERVAL, DEFAULT_PONG_TIMEOUT
 from .connection import WsConnection
 
 logger = logging.getLogger("echorpc")
@@ -25,13 +25,16 @@ class WsServer:
         host: str = "0.0.0.0",
         port: int = 9100,
         *,
-        auth_handler: Callable[[dict], Awaitable[bool | dict] | bool | dict] | None = None,
+        auth_handler: Callable[[dict], Awaitable[bool | dict] | bool | dict]
+        | None = None,
         ping_interval: float = DEFAULT_PING_INTERVAL,
+        pong_timeout: float = DEFAULT_PONG_TIMEOUT,
     ) -> None:
         self.host = host
         self.port = port
         self.auth_handler = auth_handler
         self.ping_interval = ping_interval
+        self.pong_timeout = pong_timeout
 
         self._server: Any = None
 
@@ -87,7 +90,9 @@ class WsServer:
         return None
 
     async def _handle_connection(self, ws: ServerConnection) -> None:
-        conn = WsConnection(ws, ping_interval=self.ping_interval)
+        conn = WsConnection(
+            ws, ping_interval=self.ping_interval, pong_timeout=self.pong_timeout
+        )
 
         # Read metadata stashed by process_request (or set defaults)
         meta_raw = getattr(ws, "_echorpc_meta", None)

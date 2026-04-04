@@ -11,7 +11,11 @@ import websockets
 from websockets.asyncio.client import ClientConnection
 from websockets.asyncio.server import ServerConnection
 
-from ..core import DEFAULT_PING_INTERVAL, DEFAULT_PONG_TIMEOUT, make_notification
+from ..core import (
+    DEFAULT_PING_INTERVAL,
+    DEFAULT_PONG_TIMEOUT,
+    make_notification,
+)
 
 logger = logging.getLogger("echorpc")
 
@@ -26,9 +30,11 @@ class WsConnection:
         ws: WebSocketConn,
         *,
         ping_interval: float = DEFAULT_PING_INTERVAL,
+        pong_timeout: float = DEFAULT_PONG_TIMEOUT,
     ) -> None:
         self.ws = ws
         self.ping_interval = ping_interval
+        self.pong_timeout = pong_timeout
         self._closed = False
         self._ping_task: asyncio.Task[None] | None = None
         self._pong_timer: asyncio.TimerHandle | None = None
@@ -93,7 +99,7 @@ class WsConnection:
         if self._pong_timer:
             return
         loop = asyncio.get_running_loop()
-        self._pong_timer = loop.call_later(DEFAULT_PONG_TIMEOUT, self._pong_expired)
+        self._pong_timer = loop.call_later(self.pong_timeout, self._pong_expired)
 
     def _pong_expired(self) -> None:
         self._pong_timer = None

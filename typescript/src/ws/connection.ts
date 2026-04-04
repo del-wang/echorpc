@@ -21,6 +21,7 @@ export class WsConnection implements ITransportConnection {
 	constructor(
 		public readonly ws: IWebSocket,
 		private readonly pingInterval: number = DEFAULT_PING_INTERVAL,
+		private readonly pongTimeout: number = DEFAULT_PONG_TIMEOUT,
 	) {}
 
 	get isOpen(): boolean {
@@ -80,7 +81,7 @@ export class WsConnection implements ITransportConnection {
 		this._pongTimer = setTimeout(() => {
 			this._pongTimer = null;
 			this.close();
-		}, DEFAULT_PONG_TIMEOUT);
+		}, this.pongTimeout);
 	}
 
 	/** Clear pong timeout (called when pong is received via the router). */

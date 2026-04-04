@@ -3,7 +3,7 @@
  * Implements ITransportServer. Dynamically imports `ws`.
  */
 
-import { DEFAULT_PING_INTERVAL } from "../core.js";
+import { DEFAULT_PING_INTERVAL, DEFAULT_PONG_TIMEOUT } from "../core.js";
 import type { ITransportConnection, ITransportServer } from "../transport.js";
 import { WsConnection } from "./connection.js";
 
@@ -26,6 +26,8 @@ export interface WsServerOptions {
 		| undefined;
 	/** Server-side heartbeat interval in ms (default: 30000). */
 	pingInterval?: number;
+	/** Pong timeout in ms (default: 5000). */
+	pongTimeout?: number;
 }
 
 export class WsServer implements ITransportServer {
@@ -44,6 +46,7 @@ export class WsServer implements ITransportServer {
 		| null
 		| undefined;
 	private readonly pingInterval: number;
+	private readonly pongTimeout: number;
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	private _wss: any = null;
@@ -53,6 +56,7 @@ export class WsServer implements ITransportServer {
 		this.port = opts.port ?? 9100;
 		this.authHandler = opts.authHandler;
 		this.pingInterval = opts.pingInterval ?? DEFAULT_PING_INTERVAL;
+		this.pongTimeout = opts.pongTimeout ?? DEFAULT_PONG_TIMEOUT;
 	}
 
 	get address(): { host: string; port: number } | null {
@@ -141,7 +145,11 @@ export class WsServer implements ITransportServer {
 		req: import("http").IncomingMessage,
 	): void {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const conn = new WsConnection(ws as any, this.pingInterval);
+		const conn = new WsConnection(
+			ws as any,
+			this.pingInterval,
+			this.pongTimeout,
+		);
 
 		// Read metadata stashed by verifyClient, or parse from URL
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any

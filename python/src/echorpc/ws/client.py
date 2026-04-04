@@ -14,6 +14,7 @@ from ..core import (
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_MAX_RECONNECT_DELAY,
     DEFAULT_PING_INTERVAL,
+    DEFAULT_PONG_TIMEOUT,
     INITIAL_RECONNECT_DELAY,
     ErrorCode,
     RpcError,
@@ -34,7 +35,9 @@ class WsClient:
         role: str = "web",
         client_id: str = "",
         ping_interval: float = DEFAULT_PING_INTERVAL,
+        pong_timeout: float = DEFAULT_PONG_TIMEOUT,
         max_reconnect_delay: float = DEFAULT_MAX_RECONNECT_DELAY,
+        initial_reconnect_delay: float = INITIAL_RECONNECT_DELAY,
         auto_reconnect: bool = True,
     ) -> None:
         self.url = url
@@ -42,11 +45,13 @@ class WsClient:
         self.role = role
         self.client_id = client_id
         self.ping_interval = ping_interval
+        self.pong_timeout = pong_timeout
         self.max_reconnect_delay = max_reconnect_delay
+        self.initial_reconnect_delay = initial_reconnect_delay
         self.auto_reconnect = auto_reconnect
 
         self._conn: WsConnection | None = None
-        self._reconnect_delay = INITIAL_RECONNECT_DELAY
+        self._reconnect_delay = initial_reconnect_delay
         self._closed = False
         self._loop_task: asyncio.Task[None] | None = None
 
@@ -95,8 +100,8 @@ class WsClient:
         while not self._closed:
             try:
                 ws = await websockets.connect(url)
-                self._conn = WsConnection(ws, ping_interval=self.ping_interval)
-                self._reconnect_delay = INITIAL_RECONNECT_DELAY
+                self._conn = WsConnection(ws, ping_interval=self.ping_interval, pong_timeout=self.pong_timeout)
+                self._reconnect_delay = self.initial_reconnect_delay
 
                 # Wire message callback
                 self._conn.on_message = self._on_ws_message

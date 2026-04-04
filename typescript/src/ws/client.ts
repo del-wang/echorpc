@@ -10,9 +10,9 @@ import {
 	DEFAULT_PONG_TIMEOUT,
 	ErrorCode,
 	INITIAL_RECONNECT_DELAY,
-	type IWebSocket,
 	RpcError,
 	resolveWebSocket,
+	type IWebSocket,
 	type WebSocketConstructor,
 } from "../core.js";
 import type { ITransportClient } from "../transport.js";
@@ -28,8 +28,12 @@ export interface WsClientOptions {
 	clientId?: string;
 	/** Heartbeat interval in ms (default: 30000). */
 	pingInterval?: number;
+	/** Pong timeout in ms (default: 5000). */
+	pongTimeout?: number;
 	/** Max reconnect delay in ms (default: 5000). */
 	maxReconnectDelay?: number;
+	/** Initial reconnect delay in ms (default: 1000). */
+	initialReconnectDelay?: number;
 	/** Enable auto-reconnect (default: true). */
 	autoReconnect?: boolean;
 	/** WebSocket constructor (browser: omit; Node.js: pass `ws`). */
@@ -54,7 +58,9 @@ export class WsClient implements ITransportClient {
 	private readonly role: string;
 	private readonly clientId: string;
 	private readonly pingInterval: number;
+	private readonly pongTimeout: number;
 	private readonly maxReconnectDelay: number;
+	private readonly initialReconnectDelay: number;
 	private readonly autoReconnect: boolean;
 	private readonly WS: WebSocketConstructor | undefined;
 
@@ -66,8 +72,11 @@ export class WsClient implements ITransportClient {
 		this.role = opts.role ?? "web";
 		this.clientId = opts.clientId ?? "";
 		this.pingInterval = opts.pingInterval ?? DEFAULT_PING_INTERVAL;
+		this.pongTimeout = opts.pongTimeout ?? DEFAULT_PONG_TIMEOUT;
 		this.maxReconnectDelay =
 			opts.maxReconnectDelay ?? DEFAULT_MAX_RECONNECT_DELAY;
+		this.initialReconnectDelay =
+			opts.initialReconnectDelay ?? INITIAL_RECONNECT_DELAY;
 		this.autoReconnect = opts.autoReconnect ?? true;
 		this.WS = opts.WebSocket;
 	}
@@ -185,7 +194,7 @@ export class WsClient implements ITransportClient {
 			}
 			this.pongTimer = setTimeout(() => {
 				this.ws?.close();
-			}, DEFAULT_PONG_TIMEOUT);
+			}, this.pongTimeout);
 		}, this.pingInterval);
 	}
 
@@ -208,7 +217,7 @@ export class WsClient implements ITransportClient {
 		if (this.reconnectTimer) return;
 		this.reconnectAttempt++;
 		const delay = Math.min(
-			INITIAL_RECONNECT_DELAY * 2 ** this.reconnectAttempt,
+			this.initialReconnectDelay * 2 ** this.reconnectAttempt,
 			this.maxReconnectDelay,
 		);
 		this.reconnectTimer = setTimeout(() => {
