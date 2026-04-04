@@ -31,19 +31,15 @@ from echorpc import EchoServer
 
 server = EchoServer(port=9100, auth_handler=lambda p: p["token"] == "secret")
 
-# Register RPC commands
+# Define a command that clients can call
 @server.command("add")
 def add(params):
     return {"sum": params["a"] + params["b"]}
 
-@server.command("health")
-def health():
-    return "ok"
-
-# Sub
+# Listen for events from clients
 @server.event("chat")
 async def on_chat(data):
-    print()
+    print("on_chat", data)
 
 await server.start()
 ```
@@ -54,23 +50,26 @@ await server.start()
 from echorpc import EchoClient
 
 client = EchoClient("ws://localhost:9100", token="secret")
+
+# Let the server call you back
+client.register("double", lambda p: p["x"] * 2)
+
+# Subscribe to events
+client.subscribe("chat", lambda data: print(data))
+
 await client.connect()
 
-# RPC call
+# Call a server command
 result = await client.request("add", {"a": 1, "b": 2})
 
-# Batch
+# Publish event to the server
+await client.publish("chat", {"text": "hello"})
+
+# Send multiple calls at once
 results = await client.batch_request([
     ("add", {"a": 1, "b": 2}),
     ("add", {"a": 3, "b": 4}),
 ])
-
-# Register a method the server can call back
-client.register("client.compute", lambda p: p["x"] * 2)
-
-# Pub/Sub
-client.subscribe("chat", lambda data: print(data))
-await client.publish("chat", {"text": "hello"})
 ```
 
 ## TypeScript
@@ -85,17 +84,14 @@ const server = new EchoServer({
   authHandler: (p) => p.token === "secret",
 });
 
-// Register RPC commands
+// Define a command that clients can call
 server.register("add", (p: { a: number; b: number }) => ({
   sum: p.a + p.b,
 }));
 
-server.register("health", () => "ok");
-
-
-// Pub/Sub — broadcast incoming messages to all clients
+// Listen for events from clients
 server.subscribe("chat", async (data) => {
-  server.broadcast("chat", data);
+  console.log("chat", data);
 });
 
 await server.start();
@@ -111,23 +107,26 @@ const client = new EchoClient("ws://localhost:9100", {
   token: "secret",
   WebSocket,
 });
+
+// Let the server call you back
+client.register("double", (p) => p.x * 2);
+
+// Subscribe to events
+client.subscribe("chat", (data) => console.log(data));
+
 await client.connect();
 
-// RPC call
+// Call a server command
 const result = await client.request("add", { a: 1, b: 2 });
 
-// Batch
+// Publish event to the server
+client.publish("chat", { text: "hello" });
+
+// Send multiple calls at once
 const results = await client.batchRequest([
   ["add", { a: 1, b: 2 }],
   ["add", { a: 3, b: 4 }],
 ]);
-
-// Register a method the server can call back
-client.register("client.compute", (p) => p.x * 2);
-
-// Pub/Sub
-client.subscribe("chat", (data) => console.log(data));
-client.publish("chat", { text: "hello" });
 ```
 
 ### Client (Browser)
