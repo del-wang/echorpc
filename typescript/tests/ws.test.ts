@@ -920,3 +920,122 @@ describe("TS Server: Auto-reconnect", () => {
 		await srv2.stop();
 	});
 });
+
+// ── Flexible handler signatures ─────────────────────────────────────
+
+describe("TS Server: Flexible handler signatures", () => {
+	let srv: RpcServer;
+	let ws: WsServer;
+	let port: number;
+
+	afterEach(async () => {
+		await srv?.stop();
+	});
+
+	function makeClient(): RpcClient {
+		const transport = new WsClient(`ws://127.0.0.1:${port}`, {
+			token: "test-token",
+			role: "web",
+			autoReconnect: false,
+			pingInterval: 300_000,
+			WebSocket: WS,
+		});
+		return new RpcClient(transport);
+	}
+
+	it("register with (conn, params) — full signature", async () => {
+		ws = new WsServer({ port: 0 });
+		srv = new RpcServer(ws);
+		srv.register("echo", (conn: RpcConnection, params: unknown) => params);
+		await srv.start();
+		port = srv.address!.port;
+
+		const client = makeClient();
+		await client.connect();
+		const result = await client.request("echo", { x: 1 });
+		expect(result).toEqual({ x: 1 });
+		await client.disconnect();
+	});
+
+	it("register with (params) — params only", async () => {
+		ws = new WsServer({ port: 0 });
+		srv = new RpcServer(ws);
+		srv.register("double", (params: { x: number }) => ({ result: params.x * 2 }));
+		await srv.start();
+		port = srv.address!.port;
+
+		const client = makeClient();
+		await client.connect();
+		const result = await client.request("double", { x: 5 });
+		expect(result).toEqual({ result: 10 });
+		await client.disconnect();
+	});
+
+	it("register with () — no args", async () => {
+		ws = new WsServer({ port: 0 });
+		srv = new RpcServer(ws);
+		srv.register("health", () => "ok");
+		await srv.start();
+		port = srv.address!.port;
+
+		const client = makeClient();
+		await client.connect();
+		const result = await client.request("health");
+		expect(result).toBe("ok");
+		await client.disconnect();
+	});
+
+	it("subscribe with (conn, data) — full signature", async () => {
+		const received: unknown[] = [];
+		ws = new WsServer({ port: 0 });
+		srv = new RpcServer(ws);
+		srv.subscribe("event", (conn: RpcConnection, data: unknown) => {
+			received.push({ data, role: conn.meta.role });
+		});
+		await srv.start();
+		port = srv.address!.port;
+
+		const client = makeClient();
+		await client.connect();
+		client.publish("event", { msg: "hi" });
+		await new Promise((r) => setTimeout(r, 50));
+		expect(received).toEqual([{ data: { msg: "hi" }, role: "web" }]);
+		await client.disconnect();
+	});
+
+	it("subscribe with (data) — data only", async () => {
+		const received: unknown[] = [];
+		ws = new WsServer({ port: 0 });
+		srv = new RpcServer(ws);
+		srv.subscribe("event", (data: unknown) => {
+			received.push(data);
+		});
+		await srv.start();
+		port = srv.address!.port;
+
+		const client = makeClient();
+		await client.connect();
+		client.publish("event", { msg: "hi" });
+		await new Promise((r) => setTimeout(r, 50));
+		expect(received).toEqual([{ msg: "hi" }]);
+		await client.disconnect();
+	});
+
+	it("subscribe with () — no args", async () => {
+		let count = 0;
+		ws = new WsServer({ port: 0 });
+		srv = new RpcServer(ws);
+		srv.subscribe("tick", () => {
+			count++;
+		});
+		await srv.start();
+		port = srv.address!.port;
+
+		const client = makeClient();
+		await client.connect();
+		client.publish("tick", { ignored: true });
+		await new Promise((r) => setTimeout(r, 50));
+		expect(count).toBe(1);
+		await client.disconnect();
+	});
+});

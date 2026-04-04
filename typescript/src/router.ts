@@ -52,8 +52,13 @@ export class MessageRouter {
 
 	// ── RPC methods ─────────────────────────────────────────────────────
 
+	static readonly RESERVED_METHODS = new Set(["ping", "pong"]);
+
 	/** Register an RPC method handler. */
 	register(method: string, handler: RpcHandler): void {
+		if (MessageRouter.RESERVED_METHODS.has(method)) {
+			throw new Error(`'${method}' is a reserved method name`);
+		}
 		this._handlers.set(method, handler);
 	}
 
@@ -132,6 +137,9 @@ export class MessageRouter {
 
 	/** Subscribe to incoming notifications with the given method name. */
 	subscribe(method: string, callback: EventCallback): void {
+		if (MessageRouter.RESERVED_METHODS.has(method)) {
+			throw new Error(`'${method}' is a reserved method name`);
+		}
 		if (!this._subscribers.has(method))
 			this._subscribers.set(method, new Set());
 		this._subscribers.get(method)!.add(callback);

@@ -104,6 +104,16 @@ describe("MessageRouter: RPC handlers", () => {
 			ErrorCode.METHOD_NOT_FOUND,
 		);
 	});
+
+	it("should reject registering reserved method names", () => {
+		expect(() => router.register("ping", () => {})).toThrow("reserved");
+		expect(() => router.register("pong", () => {})).toThrow("reserved");
+	});
+
+	it("should reject subscribing to reserved method names", () => {
+		expect(() => router.subscribe("ping", () => {})).toThrow("reserved");
+		expect(() => router.subscribe("pong", () => {})).toThrow("reserved");
+	});
 });
 
 // ── Pending requests ───────────────────────────────────────────────────

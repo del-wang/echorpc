@@ -109,6 +109,20 @@ class TestRpcHandlers:
         resp = last_sent()
         assert resp["error"]["code"] == ErrorCode.METHOD_NOT_FOUND
 
+    async def test_register_reserved_method_raises(self):
+        create_router()
+        with pytest.raises(ValueError, match="reserved"):
+            router.register("ping", lambda params: None)
+        with pytest.raises(ValueError, match="reserved"):
+            router.register("pong", lambda params: None)
+
+    async def test_subscribe_reserved_method_raises(self):
+        create_router()
+        with pytest.raises(ValueError, match="reserved"):
+            router.subscribe("ping", lambda data: None)
+        with pytest.raises(ValueError, match="reserved"):
+            router.subscribe("pong", lambda data: None)
+
 
 # ── Pending requests ───────────────────────────────────────────────────
 

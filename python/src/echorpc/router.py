@@ -59,8 +59,12 @@ class MessageRouter:
 
     # ── RPC methods ─────────────────────────────────────────────────────
 
+    RESERVED_METHODS = frozenset({"ping", "pong"})
+
     def register(self, method: str, handler: Handler) -> None:
         """Register an RPC method handler."""
+        if method in self.RESERVED_METHODS:
+            raise ValueError(f"'{method}' is a reserved method name")
         self._handlers[method] = handler
 
     def unregister(self, method: str) -> None:
@@ -128,6 +132,8 @@ class MessageRouter:
 
     def subscribe(self, method: str, callback: EventCallback) -> None:
         """Subscribe to incoming notifications with the given method name."""
+        if method in self.RESERVED_METHODS:
+            raise ValueError(f"'{method}' is a reserved method name")
         self._subscribers.setdefault(method, []).append(callback)
 
     def unsubscribe(self, method: str, callback: EventCallback) -> None:

@@ -38,11 +38,16 @@ def auth(params):
 ws = WsServer(port=9100, auth_handler=auth)
 server = RpcServer(ws)
 
+# Handlers support flexible signatures: (conn, params), (params), or ()
 @server.method("add")
-def add(conn, params):
+def add(params):
     return {"sum": params["a"] + params["b"]}
 
-# Server can call client methods
+@server.method("health")
+def health():
+    return "ok"
+
+# Use (conn, params) when you need the connection
 @server.method("ask.client")
 async def ask_client(conn, params):
     return await conn.request("client.compute", params)
@@ -70,9 +75,16 @@ const ws = new WsServer({
 });
 const server = new RpcServer(ws);
 
-server.register("add", (conn, p: { a: number; b: number }) => ({
+// Handlers support flexible signatures: (conn, params), (params), or ()
+server.register("add", (p: { a: number; b: number }) => ({
   sum: p.a + p.b,
 }));
+server.register("health", () => "ok");
+
+// Use (conn, params) when you need the connection
+server.register("ask.client", async (conn, p) => {
+  return await conn.request("client.compute", p);
+});
 
 await server.start();
 ```

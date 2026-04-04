@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from typing import Any, Awaitable, Callable
 
 from .connection import RpcConnection
+from .router import MessageRouter
 
 logger = logging.getLogger("echorpc")
 
@@ -59,6 +61,8 @@ class RpcServer:
     # ── RPC Registration ─────────────────────────────────────────────────
 
     def register(self, method: str, handler: ServerHandler) -> None:
+        if method in MessageRouter.RESERVED_METHODS:
+            raise ValueError(f"'{method}' is a reserved method name")
         self._global_handlers[method] = handler
 
     def unregister(self, method: str) -> None:
@@ -77,6 +81,8 @@ class RpcServer:
     # ── Pub/Sub Registration ─────────────────────────────────────────────
 
     def subscribe(self, method: str, callback: ServerEventCallback) -> None:
+        if method in MessageRouter.RESERVED_METHODS:
+            raise ValueError(f"'{method}' is a reserved method name")
         self._global_subscribers.setdefault(method, []).append(callback)
 
     def unsubscribe(self, method: str, callback: ServerEventCallback) -> None:
@@ -130,20 +136,37 @@ class RpcServer:
 
     # ── Internal ─────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _wrap_handler(fn: Callable, conn: RpcConnection) -> Callable:
+        """Wrap a server handler based on its arity.
+
+        Supports three signature styles:
+          - (conn, params) — full access
+          - (params,)      — params only
+          - ()             — no args
+        """
+        nparams = len(inspect.signature(fn).parameters)
+        if nparams >= 2:
+            return lambda params, _h=fn, _c=conn: _h(_c, params)
+        elif nparams == 1:
+            return lambda params, _h=fn: _h(params)
+        else:
+            return lambda params, _h=fn: _h()
+
     async def _handle_connection(
         self, transport_conn: Any, meta: dict[str, Any]
     ) -> None:
         conn = RpcConnection(transport_conn, timeout=self.timeout)
         conn.meta = {**meta}
 
-        # Register global handlers — wrap to inject conn as 1st arg
+        # Register global handlers — wrap based on handler arity
         for method, handler in self._global_handlers.items():
-            conn.register(method, lambda params, _h=handler, _c=conn: _h(_c, params))
+            conn.register(method, self._wrap_handler(handler, conn))
 
-        # Register global subscribers — wrap to inject conn as 1st arg
+        # Register global subscribers — wrap based on callback arity
         for method, callbacks in self._global_subscribers.items():
             for cb in callbacks:
-                conn.subscribe(method, lambda data, _cb=cb, _c=conn: _cb(_c, data))
+                conn.subscribe(method, self._wrap_handler(cb, conn))
 
         self._connections.add(conn)
 

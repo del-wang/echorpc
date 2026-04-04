@@ -953,3 +953,118 @@ class TestServerDecorators:
 
         assert received == [{"x": 1}]
         await client.disconnect()
+
+    # ── Flexible signature tests ──────────────────────────────────────
+
+    async def test_method_params_only(self):
+        """Handler with single param receives only params (no conn)."""
+
+        @self.server.method("double")
+        def double(params):
+            return {"result": params["x"] * 2}
+
+        await self.server.start()
+        port = self.server.address[1]
+
+        client = make_client(port)
+        await client.connect()
+        result = await client.request("double", {"x": 5})
+        assert result == {"result": 10}
+        await client.disconnect()
+
+    async def test_method_no_args(self):
+        """Handler with no params works."""
+
+        @self.server.method("health")
+        def health():
+            return "ok"
+
+        await self.server.start()
+        port = self.server.address[1]
+
+        client = make_client(port)
+        await client.connect()
+        result = await client.request("health")
+        assert result == "ok"
+        await client.disconnect()
+
+    async def test_method_async_params_only(self):
+        """Async handler with single param."""
+
+        @self.server.method("async_double")
+        async def async_double(params):
+            await asyncio.sleep(0.01)
+            return {"result": params["x"] * 2}
+
+        await self.server.start()
+        port = self.server.address[1]
+
+        client = make_client(port)
+        await client.connect()
+        result = await client.request("async_double", {"x": 7})
+        assert result == {"result": 14}
+        await client.disconnect()
+
+    async def test_subscription_params_only(self):
+        """Subscription callback with single param receives only data."""
+        received = []
+
+        @self.server.subscription("notify")
+        def on_notify(data):
+            received.append(data)
+
+        await self.server.start()
+        port = self.server.address[1]
+
+        client = make_client(port)
+        await client.connect()
+        await client.publish("notify", {"msg": "hi"})
+        await asyncio.sleep(0.05)
+
+        assert received == [{"msg": "hi"}]
+        await client.disconnect()
+
+    async def test_subscription_no_args(self):
+        """Subscription callback with no params works."""
+        count = []
+
+        @self.server.subscription("tick")
+        def on_tick():
+            count.append(1)
+
+        await self.server.start()
+        port = self.server.address[1]
+
+        client = make_client(port)
+        await client.connect()
+        await client.publish("tick", {"ignored": True})
+        await asyncio.sleep(0.05)
+
+        assert len(count) == 1
+        await client.disconnect()
+
+    async def test_register_params_only(self):
+        """server.register() with params-only handler."""
+        self.server.register("add", lambda params: params["a"] + params["b"])
+
+        await self.server.start()
+        port = self.server.address[1]
+
+        client = make_client(port)
+        await client.connect()
+        result = await client.request("add", {"a": 10, "b": 20})
+        assert result == 30
+        await client.disconnect()
+
+    async def test_register_no_args(self):
+        """server.register() with no-args handler."""
+        self.server.register("version", lambda: "1.0.0")
+
+        await self.server.start()
+        port = self.server.address[1]
+
+        client = make_client(port)
+        await client.connect()
+        result = await client.request("version")
+        assert result == "1.0.0"
+        await client.disconnect()

@@ -6,22 +6,33 @@
 
 import { RpcConnection } from "./connection.js";
 import { DEFAULT_REQUEST_TIMEOUT } from "./core.js";
+import { MessageRouter } from "./router.js";
 import type { ITransportServer } from "./transport.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-/** Server-side RPC handler — receives the calling connection as first arg. */
+/**
+ * Server-side RPC handler — flexible signatures:
+ *   (conn, params) — full access
+ *   (params)       — params only
+ *   ()             — no args
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type ServerRpcHandler<T = any> = (
-	conn: RpcConnection,
-	params: T,
-) => any | Promise<any>;
+export type ServerRpcHandler<T = any> =
+	| ((conn: RpcConnection, params: T) => any | Promise<any>)
+	| ((params: T) => any | Promise<any>)
+	| (() => any | Promise<any>);
 
-/** Server-side notification callback — receives the publishing connection as first arg. */
-export type ServerEventCallback<T = unknown> = (
-	conn: RpcConnection,
-	data: T,
-) => void | Promise<void>;
+/**
+ * Server-side notification callback — flexible signatures:
+ *   (conn, data) — full access
+ *   (data)       — data only
+ *   ()           — no args
+ */
+export type ServerEventCallback<T = unknown> =
+	| ((conn: RpcConnection, data: T) => void | Promise<void>)
+	| ((data: T) => void | Promise<void>)
+	| (() => void | Promise<void>);
 
 export type AuthHandler = (
 	params: Record<string, unknown>,
@@ -83,6 +94,9 @@ export class RpcServer {
 	// ── RPC Registration ─────────────────────────────────────────────────
 
 	register(method: string, handler: ServerRpcHandler): void {
+		if (MessageRouter.RESERVED_METHODS.has(method)) {
+			throw new Error(`'${method}' is a reserved method name`);
+		}
 		this._globalHandlers.set(method, handler);
 	}
 
@@ -93,6 +107,9 @@ export class RpcServer {
 	// ── Pub/Sub Registration ─────────────────────────────────────────────
 
 	subscribe(method: string, callback: ServerEventCallback): void {
+		if (MessageRouter.RESERVED_METHODS.has(method)) {
+			throw new Error(`'${method}' is a reserved method name`);
+		}
 		if (!this._globalSubscribers.has(method)) {
 			this._globalSubscribers.set(method, []);
 		}
@@ -146,6 +163,19 @@ export class RpcServer {
 
 	// ── Internal ─────────────────────────────────────────────────────────
 
+	/**
+	 * Wrap a server handler based on its arity (fn.length).
+	 *   0 args → ()           — no args
+	 *   1 arg  → (params)     — params only
+	 *   2 args → (conn, params) — full access
+	 */
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	private static _wrapHandler(fn: (...args: any[]) => any, conn: RpcConnection): (params: unknown) => any {
+		if (fn.length >= 2) return (params) => fn(conn, params);
+		if (fn.length === 1) return (params) => fn(params);
+		return () => fn();
+	}
+
 	private async _handleConnection(
 		transportConn: import("./transport.js").ITransportConnection,
 		meta: Record<string, unknown>,
@@ -155,15 +185,15 @@ export class RpcServer {
 		});
 		conn.meta = { ...meta };
 
-		// Register global handlers — wrap to inject conn as 1st arg
+		// Register global handlers — wrap based on handler arity
 		for (const [method, handler] of this._globalHandlers) {
-			conn.register(method, (params) => handler(conn, params));
+			conn.register(method, RpcServer._wrapHandler(handler as (...args: any[]) => any, conn));
 		}
 
-		// Register global subscribers — wrap to inject conn as 1st arg
+		// Register global subscribers — wrap based on callback arity
 		for (const [method, callbacks] of this._globalSubscribers) {
 			for (const cb of callbacks) {
-				conn.subscribe(method, (data) => cb(conn, data));
+				conn.subscribe(method, RpcServer._wrapHandler(cb as (...args: any[]) => any, conn));
 			}
 		}
 
