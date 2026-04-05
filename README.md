@@ -1,8 +1,10 @@
 # EchoRPC
 
-Bidirectional JSON-RPC 2.0 over WebSocket — TypeScript & Python.
+[![NPM Version](https://badgen.net/npm/v/echorpc)](https://www.npmjs.com/package/echorpc)
+[![PyPI Version](https://img.shields.io/pypi/v/echorpc.svg)](https://pypi.python.org/pypi/echorpc)
+[![License](https://img.shields.io/github/license/del-wang/echorpc)](https://github.com/del-wang/echorpc/blob/main/LICENSE)
 
-> **Note:** This project is under active development. APIs may change before v1.0.
+Bidirectional JSON-RPC 2.0 over WebSocket — TypeScript & Python.
 
 ```bash
 # TypeScript
