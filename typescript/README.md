@@ -1,78 +1,14 @@
 # EchoRPC
 
-Bidirectional JSON-RPC 2.0 over WebSocket — TypeScript & Python.
+Bidirectional JSON-RPC 2.0 over WebSocket for Node.js and browser.
 
-> **Note:** This project is under active development. APIs may change before v1.0.
+## Install
 
 ```bash
-# TypeScript
 npm install echorpc
-
-# Python
-pip install echorpc
 ```
 
-## Features
-
-- **Bidirectional RPC** — server and client can call each other's methods
-- **Pub/Sub** — fire-and-forget notifications via `publish` / `subscribe`
-- **Batch requests** — multiple calls per frame, results returned in order
-- **Auth** — token validated during HTTP upgrade
-- **Heartbeat** — ping/pong with auto-disconnect on timeout
-- **Auto-reconnect** — exponential backoff, handlers and subscriptions preserved
-- **Broadcast** — send to all connections, filter by role, or exclude specific peers
-
-## Python
-
-### Server
-
-```python
-from echorpc import EchoServer
-
-server = EchoServer(port=9100, auth_handler=lambda p: p["token"] == "secret")
-
-# Define a command that clients can call
-@server.command("add")
-def add(params):
-    return {"sum": params["a"] + params["b"]}
-
-# Listen for events from clients
-@server.event("chat")
-async def on_chat(data):
-    print("on_chat", data)
-
-await server.start()
-```
-
-### Client
-
-```python
-from echorpc import EchoClient
-
-client = EchoClient("ws://localhost:9100", token="secret")
-
-# Let the server call you back
-client.register("double", lambda p: p["x"] * 2)
-
-# Subscribe to events
-client.subscribe("chat", lambda data: print(data))
-
-await client.connect()
-
-# Call a server command
-result = await client.request("add", {"a": 1, "b": 2})
-
-# Publish event to the server
-await client.publish("chat", {"text": "hello"})
-
-# Send multiple calls at once
-results = await client.batch_request([
-    ("add", {"a": 1, "b": 2}),
-    ("add", {"a": 3, "b": 4}),
-])
-```
-
-## TypeScript
+## Quick Start
 
 ### Server
 

@@ -170,7 +170,10 @@ export class RpcServer {
 	 *   2 args → (params, conn) — full access
 	 */
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	private static _wrapHandler(fn: (...args: any[]) => any, conn: RpcConnection): (params: unknown) => any {
+	private static _wrapHandler(
+		fn: (...args: any[]) => any,
+		conn: RpcConnection,
+	): (params: unknown) => any {
 		if (fn.length >= 2) return (params) => fn(params, conn);
 		if (fn.length === 1) return (params) => fn(params);
 		return () => fn();
@@ -187,13 +190,19 @@ export class RpcServer {
 
 		// Register global handlers — wrap based on handler arity
 		for (const [method, handler] of this._globalHandlers) {
-			conn.register(method, RpcServer._wrapHandler(handler as (...args: any[]) => any, conn));
+			conn.register(
+				method,
+				RpcServer._wrapHandler(handler as (...args: any[]) => any, conn),
+			);
 		}
 
 		// Register global subscribers — wrap based on callback arity
 		for (const [method, callbacks] of this._globalSubscribers) {
 			for (const cb of callbacks) {
-				conn.subscribe(method, RpcServer._wrapHandler(cb as (...args: any[]) => any, conn));
+				conn.subscribe(
+					method,
+					RpcServer._wrapHandler(cb as (...args: any[]) => any, conn),
+				);
 			}
 		}
 

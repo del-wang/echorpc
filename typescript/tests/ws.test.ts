@@ -960,7 +960,9 @@ describe("TS Server: Flexible handler signatures", () => {
 	it("register with (params) — params only", async () => {
 		ws = new WsServer({ port: 0 });
 		srv = new RpcServer(ws);
-		srv.register("double", (params: { x: number }) => ({ result: params.x * 2 }));
+		srv.register("double", (params: { x: number }) => ({
+			result: params.x * 2,
+		}));
 		await srv.start();
 		port = srv.address!.port;
 

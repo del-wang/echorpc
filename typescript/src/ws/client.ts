@@ -10,9 +10,9 @@ import {
 	DEFAULT_PONG_TIMEOUT,
 	ErrorCode,
 	INITIAL_RECONNECT_DELAY,
+	type IWebSocket,
 	RpcError,
 	resolveWebSocket,
-	type IWebSocket,
 	type WebSocketConstructor,
 } from "../core.js";
 import type { ITransportClient } from "../transport.js";

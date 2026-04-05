@@ -100,7 +100,9 @@ class WsClient:
         while not self._closed:
             try:
                 ws = await websockets.connect(url)
-                self._conn = WsConnection(ws, ping_interval=self.ping_interval, pong_timeout=self.pong_timeout)
+                self._conn = WsConnection(
+                    ws, ping_interval=self.ping_interval, pong_timeout=self.pong_timeout
+                )
                 self._reconnect_delay = self.initial_reconnect_delay
 
                 # Wire message callback

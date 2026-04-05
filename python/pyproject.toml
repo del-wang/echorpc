@@ -1,15 +1,43 @@
 [project]
 name = "echorpc"
-version = "0.1.0"
+version = "1.0.0"
 description = "Bidirectional JSON-RPC 2.0 over WebSocket — TypeScript & Python."
-requires-python = ">=3.12"
-dependencies = ["aiohttp>=3.13.4", "websockets>=16.0"]
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Del Wang", email = "del@del.wang" }]
+keywords = [
+  "rpc",
+  "json-rpc",
+  "websocket",
+  "bidirectional",
+  "pubsub",
+  "typescript",
+  "nodejs",
+  "browser",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries",
+  "Framework :: AsyncIO",
+]
+dependencies = ["websockets>=16.0"]
+
+[project.urls]
+Homepage = "https://github.com/del-wang/echorpc"
+Repository = "https://github.com/del-wang/echorpc"
+Issues = "https://github.com/del-wang/echorpc/issues"
 
 [tool.taskipy.tasks]
 test = "pytest -v"
 check = "ty check ."
-build = "hatch build"
 lint = "ruff check --fix .; ruff format ."
+reset = "uv sync --all-groups --force-reinstall"
 
 [dependency-groups]
 dev = [
@@ -24,8 +52,8 @@ dev = [
 asyncio_mode = "auto"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.11.3,<0.12"]
+build-backend = "uv_build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/echorpc"]

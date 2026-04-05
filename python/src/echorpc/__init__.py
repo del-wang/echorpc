@@ -1,10 +1,9 @@
-"""echorpc — Production-grade JSON-RPC 2.0 with pluggable transports."""
+"""EchoRPC — Bidirectional JSON-RPC 2.0 over WebSocket."""
 
 from .client import RpcClient
 from .connection import RpcConnection
 from .core import ErrorCode, RpcError
-from .echo_client import EchoClient
-from .echo_server import EchoServer
+from .echo import EchoClient, EchoServer
 from .router import MessageRouter
 from .server import RpcServer, ServerEventCallback, ServerHandler
 from .ws import WsClient, WsConnection, WsServer
